@@ -4,3 +4,6 @@ node.key
 test
 node_modules
 data
+
+vision/model.onnx
+vision/__pycache__

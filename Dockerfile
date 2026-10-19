@@ -1,8 +1,14 @@
 FROM node:24-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini python3-venv \
+    && python3 -m venv /opt/vision-env \
+    && /opt/vision-env/bin/pip install --no-cache-dir opencv-python-headless==4.12.0.88 numpy==2.2.6 \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --chown=node:node package.json ./
 COPY --chown=node:node lib ./lib
+COPY --chown=node:node vision ./vision
+RUN node vision/fetch-model.mjs
+RUN /opt/vision-env/bin/python3 vision/test_motion.py
 RUN mkdir -p /data && chown node:node /data
 USER node
 ENV NODE_ENV=production HAUS_DATA=/data
