@@ -1,0 +1,16 @@
+{
+  "name": "haus-nvr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Optional storage and media streaming workers for Haus",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node lib/main.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check lib/main.mjs && npm test",
+    "test:integration": "node --test test/integration/*.test.mjs"
+  }
+}
