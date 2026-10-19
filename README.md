@@ -14,7 +14,7 @@ Haus works with one Home Assistant helper. Add NVR nodes when you want more plac
 - Enforces disk budgets, free-space reserves, transfer/concurrency limits, stream idle timeouts and temporary-file cleanup.
 - Uses one Linux image for x86-64 and ARM64. Docker runs as an unprivileged user, with a read-only root filesystem and no additional capabilities.
 
-This is a local, unreleased preview. The image publishing workflow is prepared; the first prebuilt image will be published after approval of the coordinated Haus/helper/NVR release. Until then, build the image locally.
+This is an early release. Prebuilt images are published at `ghcr.io/resonaura/haus-nvr:0.1.0` for Linux x86-64 and ARM64. Requires Haus helper 0.2.1 or later; no worker is required for normal local recording.
 
 ## Start a node
 
@@ -23,8 +23,7 @@ Requires Docker Compose and persistent storage. Copy `compose.yaml` to the node,
 ```sh
 umask 077
 printf 'HAUS_NODE_KEY=%s\n' "$(openssl rand -hex 32)" > .env
-# During the local preview:
-docker build -t ghcr.io/resonaura/haus-nvr:0.1.0 .
+docker compose pull
 docker compose up -d
 ```
 
@@ -82,3 +81,5 @@ The tests run local HTTP nodes, signed uploads and range reads, damaged-file che
 Tag builds are prepared for `linux/amd64` and `linux/arm64` in GitHub Actions, with provenance and SBOM output. No registry push occurs on pull requests.
 
 References: [HA backup API](https://contributors.home-assistant.io/apps/supervisor-api/backups/), [HA app backup configuration](https://contributors.home-assistant.io/apps/reference/configuration/), [FFmpeg HLS muxer](https://ffmpeg.org/ffmpeg-formats.html#hls-2).
+
+For a node on a separate host, provision HTTPS before ordinary pairing. The opt-in remote protocol test accepts `HAUS_NVR_TEST_URL` and `HAUS_NVR_TEST_KEY_FILE`; run it against a disposable node, because it uploads and removes a synthetic fixture recording.
