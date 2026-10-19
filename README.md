@@ -83,3 +83,11 @@ Tag builds are prepared for `linux/amd64` and `linux/arm64` in GitHub Actions, w
 References: [HA backup API](https://contributors.home-assistant.io/apps/supervisor-api/backups/), [HA app backup configuration](https://contributors.home-assistant.io/apps/reference/configuration/), [FFmpeg HLS muxer](https://ffmpeg.org/ffmpeg-formats.html#hls-2).
 
 For a node on a separate host, provision HTTPS before ordinary pairing. The opt-in remote protocol test accepts `HAUS_NVR_TEST_URL` and `HAUS_NVR_TEST_KEY_FILE`; run it against a disposable node, because it uploads and removes a synthetic fixture recording.
+
+### Local motion analysis
+
+Haus can optionally assign local motion analysis to stream workers. It is disabled per camera until explicitly enabled in Haus. The worker samples keyframes, filters brief noise and exposure changes, and uses the bundled Apache-2.0 NanoDet model for people, common pets and vehicles. A sustained-movement mode supports small animals and other objects outside the model classes. All analysis stays local.
+
+Container CPU and memory quotas bound worker slots. Busy or memory-constrained nodes decline new work; slow inference drops frames instead of building a backlog. Haus distributes cameras by relative capacity, expires lost leases and moves failed or persistently overloaded jobs to another worker. A bounded helper fallback runs at most one analysis process. Existing physical Home Assistant detector events and the continuous eight-second default pre-event buffer remain independent of software analysis.
+
+Use `HAUS_MAX_STREAMS=1` for an especially small worker. Signed recording reads use a separate I/O budget so a live relay cannot starve playback. Production containers remain unprivileged and read-only; video source capabilities expire and never contain Home Assistant credentials.
