@@ -14,7 +14,7 @@ Haus works with one Home Assistant helper. Add NVR nodes when you want more plac
 - Enforces disk budgets, free-space reserves, transfer/concurrency limits, stream idle timeouts and temporary-file cleanup.
 - Uses one Linux image for x86-64 and ARM64. Docker runs as an unprivileged user, with a read-only root filesystem and no additional capabilities.
 
-This is an early release. Prebuilt images are published at `ghcr.io/resonaura/haus-nvr:0.1.1` for Linux x86-64 and ARM64. Requires Haus helper 0.2.1 or later; no worker is required for normal local recording.
+This is an early release. Prebuilt images are published at `ghcr.io/resonaura/haus-nvr:0.2.2` for Linux x86-64 and ARM64. Requires Haus helper 0.2.1 or later (0.3.2 or later for software motion detection); no worker is required for normal local recording.
 
 ## Start a node
 

@@ -25,4 +25,15 @@ test("weak container quotas bound workers even on a large host and pressure stop
   used = 480 * 1024 ** 2;
   await capacity.sample();
   assert.equal(capacity.pressured, true);
+  values["memory.stat"] =
+    `anon ${100 * 1024 ** 2}\ninactive_file ${380 * 1024 ** 2}\nshmem ${10 * 1024 ** 2}\n`;
+  await capacity.sample();
+  assert.equal(capacity.memoryUsed, 100 * 1024 ** 2);
+  assert.equal(capacity.pressured, false);
+  assert.equal(capacity.status().memoryCurrentBytes, used);
+  // Active/shared pages cannot be discarded as though they were idle cache.
+  values["memory.stat"] =
+    `active_file ${380 * 1024 ** 2}\nshmem ${10 * 1024 ** 2}\n`;
+  await capacity.sample();
+  assert.equal(capacity.pressured, true);
 });
