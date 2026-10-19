@@ -2,7 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm, stat, mkdir } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  mkdir,
+  writeFile,
+  utimes,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WorkerStreams } from "../lib/streams.mjs";
@@ -164,6 +172,27 @@ test("stopping a relay during startup cannot spawn an orphan encoder", async () 
     await rejected;
     assert.equal(spawned, 0);
     assert.equal(streams.size, 0);
+  } finally {
+    await streams.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a ready relay with a stale playlist is removed instead of serving a frozen stream", async () => {
+  const root = await mkdtemp(join(tmpdir(), "haus-relay-stale-"));
+  const streams = new WorkerStreams(root, "http://127.0.0.1:9999");
+  const id = "a".repeat(36),
+    dir = join(root, id);
+  try {
+    await mkdir(dir);
+    const path = join(dir, "index.m3u8");
+    await writeFile(path, "#EXTM3U");
+    const old = new Date(Date.now() - 31000);
+    await utimes(path, old, old);
+    streams.jobs.set(id, { id, dir, lastRead: Date.now(), state: "ready" });
+    await streams.prune();
+    assert.equal(streams.size, 0);
+    await assert.rejects(stat(dir));
   } finally {
     await streams.stop();
     await rm(root, { recursive: true, force: true });
