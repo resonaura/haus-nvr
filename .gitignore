@@ -1,0 +1,5 @@
+node.key
+.env
+/data/
+node_modules/
+coverage/

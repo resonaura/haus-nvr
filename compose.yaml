@@ -1,0 +1,19 @@
+services:
+  haus-nvr:
+    image: ghcr.io/resonaura/haus-nvr:0.1.0
+    restart: unless-stopped
+    ports: ["8098:8098"]
+    environment:
+      HAUS_NODE_ID: ${HAUS_NODE_ID:-nvr-1}
+      HAUS_NODE_KEY: ${HAUS_NODE_KEY:?Set a unique pairing key in .env}
+      HAUS_SOURCE_ORIGIN: ${HAUS_SOURCE_ORIGIN:-}
+      HAUS_MAX_STORAGE_GB: ${HAUS_MAX_STORAGE_GB:-100}
+      HAUS_ROLES: storage,stream
+    volumes: ["haus-nvr:/data"]
+    read_only: true
+    tmpfs: ["/tmp:size=128m"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    stop_grace_period: 10s
+volumes:
+  haus-nvr:
