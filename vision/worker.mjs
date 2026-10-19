@@ -66,6 +66,8 @@ export class VisionWorker {
         "-loglevel",
         "error",
         "-nostdin",
+        "-filter_threads",
+        "1",
         "-rw_timeout",
         "15000000",
         "-threads",
