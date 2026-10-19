@@ -56,11 +56,20 @@ export class Capacity {
     return this;
   }
   async sample() {
-    const [memory, cpu] = await Promise.all([
+    const [memory, stats, cpu] = await Promise.all([
       this.read("memory.current"),
+      this.read("memory.stat"),
       this.read("cpu.stat"),
     ]);
-    if (Number(memory) >= 0) this.memoryUsed = Number(memory);
+    if (memory.trim() && Number(memory) >= 0) {
+      // cgroup usage includes disk page cache from recording replication. Only
+      // subtract inactive file pages; anonymous memory, tmpfs and active pages
+      // still count against the worker budget.
+      this.memoryCurrent = Number(memory);
+      const inactiveFile =
+        Number(/^inactive_file (\d+)$/m.exec(stats)?.[1]) || 0;
+      this.memoryUsed = Math.max(0, this.memoryCurrent - inactiveFile);
+    }
     const usage = Number(/\busage_usec (\d+)/.exec(cpu)?.[1]);
     const now = performance.now();
     if (Number.isFinite(usage) && this.last)
@@ -81,6 +90,7 @@ export class Capacity {
       cpus: this.cpus,
       memoryBytes: this.memory,
       memoryUsedBytes: this.memoryUsed,
+      memoryCurrentBytes: this.memoryCurrent ?? this.memoryUsed,
       cpu: this.cpu,
       pressured: this.pressured,
     };

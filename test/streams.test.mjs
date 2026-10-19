@@ -59,18 +59,18 @@ test("a real FFmpeg relay serves live HLS, scopes its source, and releases encod
       const name = new URL(req.url, "http://fixture").pathname
         .split("/")
         .at(-1);
-      if (!/^(manifest|source-\d+\.ts)$/.test(name))
+      if (!/^(manifest\.m3u8|source-\d+\.ts)$/.test(name))
         return res.writeHead(403).end();
       res
         .writeHead(200, {
           "Content-Type":
-            name === "manifest"
+            name === "manifest.m3u8"
               ? "application/vnd.apple.mpegurl"
               : "video/mp2t",
         })
         .end(
           await readFile(
-            join(input, name === "manifest" ? "index.m3u8" : name),
+            join(input, name === "manifest.m3u8" ? "index.m3u8" : name),
           ),
         );
     } catch {
@@ -104,7 +104,9 @@ test("a real FFmpeg relay serves live HLS, scopes its source, and releases encod
   });
   await assert.rejects(() =>
     streams.start(
-      "http://external.example/cluster/source/" + "a".repeat(48) + "/manifest",
+      "http://external.example/cluster/source/" +
+        "a".repeat(48) +
+        "/manifest.m3u8",
     ),
   );
   const until = Date.now() + 8000;
@@ -114,7 +116,7 @@ test("a real FFmpeg relay serves live HLS, scopes its source, and releases encod
   }
   const path = "/v1/streams",
     body = JSON.stringify({
-      source: origin + "/cluster/source/" + "a".repeat(48) + "/manifest",
+      source: origin + "/cluster/source/" + "a".repeat(48) + "/manifest.m3u8",
     }),
     digest = createHash("sha256").update(body).digest("hex");
   const started = await fetch(base + path, {
@@ -165,7 +167,9 @@ test("stopping a relay during startup cannot spawn an orphan encoder", async () 
   try {
     await streams.initialize();
     const pending = streams.start(
-      "http://127.0.0.1:9999/cluster/source/" + "a".repeat(48) + "/manifest",
+      "http://127.0.0.1:9999/cluster/source/" +
+        "a".repeat(48) +
+        "/manifest.m3u8",
     );
     const rejected = assert.rejects(pending, /stream_stopped/);
     await streams.stop();

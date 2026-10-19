@@ -29,7 +29,7 @@ test("inference jobs obey quotas, isolate capabilities, bound event history and 
     () => jobs.start("http://another.test/private"),
     /invalid_detector_source/,
   );
-  const source = `http://helper.test:8099/cluster/source/${"a".repeat(48)}/${"b".repeat(24)}`;
+  const source = `http://helper.test:8099/cluster/source/${"a".repeat(48)}/${"b".repeat(24)}.m3u8`;
   const { id } = jobs.start(source);
   assert.throws(() => jobs.start(source), /detector_busy/);
   for (let index = 0; index < 100; index++)
