@@ -57,3 +57,40 @@ test("recording cursor pagination does not lose equal-time clips", async () => {
     index.close();
   }
 });
+test("replicates corrected playback timing and bounded repair diagnostics", async () => {
+  const index = new RecordingIndex(":memory:", {
+    info: async () => ({ size: 10 }),
+  });
+  try {
+    await index.add({
+      digest: "a".repeat(64),
+      event: {
+        id: "a".repeat(36),
+        cameraId: "camera.fixture",
+        startAt: 1000,
+        endAt: 3000,
+        duration: 2,
+        originalDuration: 1002,
+        kinds: ["motion"],
+        playbackVersion: 3,
+        playbackInfo: {
+          audio: true,
+          duration: 2,
+          audioTrimSeconds: 1000,
+          audioTailSeconds: -1,
+          sourceGaps: Array(100).fill({ at: 1, duration: 2 }),
+          privateField: "omitted",
+        },
+      },
+    });
+    const item = index.get("a".repeat(36));
+    assert.equal(item.originalDuration, 1002);
+    assert.deepEqual(item.playbackInfo, {
+      audio: true,
+      duration: 2,
+      audioTrimSeconds: 1000,
+    });
+  } finally {
+    index.close();
+  }
+});
