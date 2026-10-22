@@ -12,9 +12,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
-import { Readable } from "node:stream";
 import { Playback } from "../../lib/playback.mjs";
 import { Blobs } from "../../lib/blobs.mjs";
+import { RecordingIndex } from "../../lib/recording-index.mjs";
 import { createNode } from "../../lib/server.mjs";
 
 const helper = process.env.HAUS_HELPER_PATH;
@@ -67,10 +67,15 @@ test(
       maxBytes: 4 * 1024 ** 2,
     });
     await playback.initialize();
+    const recordings = new RecordingIndex(
+      join(root, "recordings.sqlite"),
+      blobs,
+    );
     const server = createNode({
       key: "fixture-private-node-key-at-least-32-characters",
       blobs,
       playback,
+      recordings,
       capacity,
       nodeId: "fixture-worker",
       instanceId: randomUUID(),
@@ -127,12 +132,6 @@ test(
     ]);
     const original = await readFile(input),
       digest = createHash("sha256").update(original).digest("hex");
-    await blobs.put(digest, Readable.from(original), original.length);
-    store.db
-      .prepare(
-        "INSERT INTO cluster_locations(digest,node_id,kind)VALUES(?,?,'recording')",
-      )
-      .run(digest, node.id);
     let localEncoders = 0;
     const local = recorder.encoding.run.bind(recorder.encoding);
     recorder.encoding.run = (...args) => {
@@ -161,6 +160,18 @@ test(
         duration: 3,
         playbackVersion: 0,
       });
+      if (mode === "remote") {
+        // Use production replication, including its real catalog kind; a
+        // hand-written location can mask a client/server contract mismatch.
+        await cluster.tick();
+        const replica = store.db
+          .prepare(
+            "SELECT kind,catalog_version FROM cluster_locations WHERE digest=? AND node_id=?",
+          )
+          .get(digest, node.id);
+        assert.equal(replica?.kind, "media");
+        assert.equal(replica?.catalog_version, 1);
+      }
       const before = localEncoders,
         began = performance.now();
       const output = await recorder.preparePlayback(store.get(event.id));
