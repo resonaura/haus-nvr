@@ -98,6 +98,9 @@ test("real playback conversion retains video dimensions, moving frames and audio
     "aac",
   );
   assert.ok(Number(probe.format.duration) < 2.2);
+  assert.ok(
+    Number(probe.streams.find((s) => s.codec_type === "audio").duration) < 2.2,
+  );
   const decoded = await exec("ffmpeg", [
     "-hide_banner",
     "-v",
