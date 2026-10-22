@@ -14,7 +14,7 @@ Haus works with one Home Assistant helper. Add NVR nodes when you want more plac
 - Enforces disk budgets, free-space reserves, transfer/concurrency limits, stream idle timeouts and temporary-file cleanup.
 - Uses one Linux image for x86-64 and ARM64. Docker runs as an unprivileged user, with a read-only root filesystem and no additional capabilities.
 
-This is an early release. Prebuilt images are published at `ghcr.io/resonaura/haus-nvr:0.2.3` for Linux x86-64 and ARM64. Requires Haus helper 0.2.1 or later (0.3.2 or later for software motion detection); no worker is required for normal local recording.
+This is an early release. Prebuilt images are published at `ghcr.io/resonaura/haus-nvr:0.3.0` for Linux x86-64 and ARM64. Requires Haus helper 0.2.1 or later (0.3.2 or later for software motion detection); no worker is required for normal local recording. Optional playback preparation requires helper 0.3.12 or later.
 
 ## Start a node
 
@@ -91,3 +91,9 @@ Haus can optionally assign local motion analysis to stream workers. It is disabl
 Container CPU and memory quotas bound worker slots. Busy or memory-constrained nodes decline new work; slow inference drops frames instead of building a backlog. Haus distributes cameras by relative capacity, expires lost leases and moves failed or persistently overloaded jobs to another worker. A bounded helper fallback runs at most one analysis process. Existing physical Home Assistant detector events and the continuous eight-second default pre-event buffer remain independent of software analysis.
 
 Use `HAUS_MAX_STREAMS=1` for an especially small worker. Signed recording reads use a separate I/O budget so a live relay cannot starve playback. Production containers remain unprivileged and read-only; video source capabilities expire and never contain Home Assistant credentials.
+
+### Playback preparation
+
+With a current Haus helper, capable workers can prepare camera recordings for smooth native playback. The helper chooses a lightly loaded node that already holds the original, verifies the returned media and retains the authoritative copy. Older, disconnected or busy nodes fall back to processing on Home Assistant.
+
+Processing uses one encoder per node and preserves source resolution and audio. Admission requires at least one CPU, 768 MiB of RAM and 512 MiB free; high-resolution footage can be declined when the remaining memory allowance is insufficient. Existing activity analysis continues, while new analysis waits during encoding. Weak storage/streaming nodes continue serving their existing roles. Temporary processing output shares the storage budget, expires automatically and is removed after the helper retrieves it.

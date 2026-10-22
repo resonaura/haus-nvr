@@ -19,6 +19,14 @@ jobs:
         with: { node-version: "24" }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm test
+      - uses: actions/checkout@v7
+        with:
+          repository: resonaura/haus-helper
+          path: integration-helper
+      - run: npm ci --ignore-scripts --prefix integration-helper/haus-helper
+      - run: npm run test:integration
+        env:
+          HAUS_HELPER_PATH: ${{ github.workspace }}/integration-helper/haus-helper
   image:
     needs: test
     strategy:

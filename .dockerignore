@@ -1,7 +1,6 @@
 .git
 node.key
 .env
-test
 node_modules
 data
 
