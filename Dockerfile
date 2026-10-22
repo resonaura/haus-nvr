@@ -9,6 +9,7 @@ COPY --chown=node:node lib ./lib
 COPY --chown=node:node vision ./vision
 RUN node vision/fetch-model.mjs
 RUN /opt/vision-env/bin/python3 vision/test_motion.py
+RUN --mount=type=bind,source=test,target=/app/test,readonly node --test test/playback-process.test.mjs
 RUN mkdir -p /data && chown node:node /data
 USER node
 ENV NODE_ENV=production HAUS_DATA=/data
