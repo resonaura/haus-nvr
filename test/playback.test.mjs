@@ -102,6 +102,10 @@ test("authenticated preparation coalesces pending work, verifies result bytes an
   for (let i = 0; i < 20 && !calls; i++) await pause(5);
   assert.equal(calls, 1);
   assert.equal(
+    (await f.request(`/v1/blobs/${f.source}`, "DELETE")).status,
+    409,
+  );
+  assert.equal(
     (
       await f.request("/v1/playback", "POST", {
         ...f.input,
