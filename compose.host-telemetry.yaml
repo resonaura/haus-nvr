@@ -1,0 +1,11 @@
+# Optional: run the collector on the actual host, then bind its sanitized output.
+# docker compose -f compose.yaml -f compose.host-telemetry.yaml up -d
+services:
+  haus-nvr:
+    environment:
+      HAUS_HOST_TELEMETRY_FILE: /host-telemetry/host.json
+    volumes:
+      - type: bind
+        source: ${HAUS_HOST_TELEMETRY_DIRECTORY:?Set the host telemetry directory}
+        target: /host-telemetry
+        read_only: true

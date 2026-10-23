@@ -12,7 +12,7 @@ RUN /opt/vision-env/bin/python3 vision/test_motion.py
 RUN --mount=type=bind,source=test,target=/app/test,readonly node --test test/playback-process.test.mjs
 RUN mkdir -p /data && chown node:node /data
 USER node
-ENV NODE_ENV=production HAUS_DATA=/data
+ENV NODE_ENV=production HAUS_DATA=/data HAUS_CONTAINER=true
 EXPOSE 8098
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:8098/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

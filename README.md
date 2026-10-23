@@ -11,10 +11,11 @@ Haus works with one Home Assistant helper. Add NVR nodes when you want more plac
 - Serves seekable media directly to Haus using a two-minute, read-only capability for one file. Pairing keys stay between the helper and the worker.
 - Optionally relays live HLS through FFmpeg using a narrowly scoped helper source. Live relay is separate from normal recording playback.
 - Keeps a local recording index and backup catalog, so useful recovery metadata remains available if the helper is lost.
-- Enforces disk budgets, free-space reserves, transfer/concurrency limits, stream idle timeouts and temporary-file cleanup.
+- Offers optional per-node disk budgets with no fixed quota by default, plus free-space reserves, transfer/concurrency limits, stream idle timeouts and temporary-file cleanup.
+- Reports CPU, memory, swap and disk telemetry, with optional read-only host Docker/PM2 status for the Haus Servers dashboard.
 - Uses one Linux image for x86-64 and ARM64. Docker runs as an unprivileged user, with a read-only root filesystem and no additional capabilities.
 
-This is an early release. Prebuilt images are published at `ghcr.io/resonaura/haus-nvr:0.3.0` for Linux x86-64 and ARM64. Requires Haus helper 0.2.1 or later (0.3.2 or later for software motion detection); no worker is required for normal local recording. Optional playback preparation requires helper 0.3.12 or later.
+Prebuilt images are published at `ghcr.io/resonaura/haus-nvr:0.3.2` for Linux x86-64 and ARM64. Requires Haus helper 0.2.1 or later (0.3.2 or later for software motion detection); no worker is required for normal local recording. Optional playback preparation and server telemetry require helper 0.3.19 or later.
 
 ## Start a node
 
@@ -31,7 +32,9 @@ Open **Haus → Settings → Storage, streaming & backups → Add node**. Enter 
 
 Use HTTPS through your trusted reverse proxy for transport privacy. HTTP must be explicitly enabled when pairing and is limited to private addresses. HTTP does not encrypt video in transit; backup payloads are always encrypted before leaving the helper. Do not expose a plain HTTP node port to the internet.
 
-Configure `HAUS_MAX_STORAGE_GB` and `HAUS_NODE_ID` in Compose. `HAUS_ROLES` accepts `storage`, `stream`, or both. Every paired node receives encrypted recovery copies; storage nodes also receive video. The helper keeps the original video and normally places up to two worker copies, preferring existing placements and available disk. Pausing/removing a node never deletes the helper's originals.
+Configure `HAUS_NODE_ID` in Compose. Storage has no fixed quota by default; choose an optional limit for each node in **Haus → Servers**. An existing `HAUS_MAX_STORAGE_GB` cap remains respected until changed there. Reducing a node cap keeps existing files and pauses new admission when full. `HAUS_ROLES` accepts `storage`, `stream`, or both. Every paired node receives encrypted recovery copies; storage nodes also receive video. The helper keeps the original video and normally places up to two worker copies, preferring existing placements and available disk. Pausing/removing a node never deletes the helper's originals.
+
+For actual host CPU/RAM/swap, a disk hierarchy and optional Docker/PM2 inventory from container installations, see [server telemetry and storage policy](docs/server-management.md). The optional host collector exports sanitized, read-only status; the worker never receives the Docker socket or host command access.
 
 There is no configured node-count limit. Helper health checks have bounded concurrency, each node has its own storage/stream budgets, and the Haus node list is virtualized. More nodes do not remove network or hardware capacity limits.
 

@@ -1,13 +1,14 @@
 services:
   haus-nvr:
-    image: ghcr.io/resonaura/haus-nvr:0.3.0
+    image: ghcr.io/resonaura/haus-nvr:0.3.2
     restart: unless-stopped
     ports: ["8098:8098"]
     environment:
       HAUS_NODE_ID: ${HAUS_NODE_ID:-nvr-1}
       HAUS_NODE_KEY: ${HAUS_NODE_KEY:?Set a unique pairing key in .env}
       HAUS_SOURCE_ORIGIN: ${HAUS_SOURCE_ORIGIN:-}
-      HAUS_MAX_STORAGE_GB: ${HAUS_MAX_STORAGE_GB:-100}
+      # Empty means no quota. Physical free-space safety remains enforced.
+      HAUS_MAX_STORAGE_GB: ${HAUS_MAX_STORAGE_GB:-}
       HAUS_ROLES: storage,stream
     volumes: ["haus-nvr:/data"]
     read_only: true
