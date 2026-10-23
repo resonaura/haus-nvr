@@ -46,7 +46,7 @@ node lib/host-collector.mjs --output /path/to/haus-telemetry/host.json
 node lib/host-collector.mjs --output /path/to/haus-telemetry/host.json --once
 ```
 
-The collector uses Node OS counters, Linux `/proc` and `lsblk`, macOS `vm_stat`/`sysctl`/`diskutil`, or Windows read-only CIM queries. Linux/macOS include disk/partition/volume parents; Windows includes local fixed volumes. APFS volume usage comes from its own allocation rather than repeating the entire container's used space. No process arguments, environments, labels, ports, Docker mounts, logs or command output appear in reports. PM2 metadata is reduced to an explicit status whitelist before writing. It does not start a stopped PM2 daemon.
+The collector uses Node OS counters, Linux `/proc` and `lsblk`, macOS `vm_stat`/`sysctl`/`diskutil`, or Windows read-only CIM queries. Host-scoped Linux samples include only the distribution ID and `PRETTY_NAME` from `/etc/os-release`, parsed as data and never evaluated as shell syntax. Linux/macOS include disk/partition/volume parents; Windows includes local fixed volumes. APFS volume usage comes from its own allocation rather than repeating the entire container's used space. No process arguments, environments, labels, ports, Docker mounts, logs or command output appear in reports. PM2 metadata is reduced to an explicit status whitelist before writing. It does not start a stopped PM2 daemon.
 
 Docker status needs the host operator's existing Docker permission. Do not add the worker to the Docker group, mount `/var/run/docker.sock` into it, or expose an unauthenticated Docker API. Docker and PM2 failures are reported as unavailable; ordinary recording continues. The collector does not start, stop or restart host applications.
 
@@ -67,8 +67,8 @@ Samples refresh every five seconds without overlapping. Each subprocess has a 2.
 host: {
   sampledAt: ISO date,
   scope: "host" | "container",
-  hostname, platform, release, arch,
-  uptimeSeconds,
+  hostname, platform, distribution?, osName?, release, arch,
+  uptimeSeconds, battery?: { level: 0..100 | null, charging: boolean | null } | null,
   cpu: {model, logicalCores, usage: 0..1 | null, loadAverage: number[]},
   memory: {totalBytes, availableBytes, usedBytes},
   swap: {supported, totalBytes: number | null, usedBytes: number | null},

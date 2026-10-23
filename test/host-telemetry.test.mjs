@@ -5,12 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   HostTelemetry,
+  parseOsRelease,
   readHostReport,
   sanitizeHostReport,
 } from "../lib/host-telemetry.mjs";
 import {
   linuxDisks,
+  linuxBattery,
   macDisks,
+  parseMacBattery,
   parseMeminfo,
   windowsTelemetry,
 } from "../lib/host-platform.mjs";
@@ -38,6 +41,7 @@ const sample = () => ({
 test("host reports whitelist fields, reject stale/future reports and bound lists", () => {
   const input = sample();
   input.password = "secret";
+  input.battery = { level: 87.5, charging: true, token: "secret" };
   input.docker = {
     available: true,
     socket: "secret",
@@ -74,6 +78,7 @@ test("host reports whitelist fields, reject stale/future reports and bound lists
   const clean = sanitizeHostReport(input);
   assert.equal(clean.docker.containers.length, 256);
   assert.equal(clean.docker.source, "host-collector");
+  assert.deepEqual(clean.battery, { level: 87.5, charging: true });
   assert.ok(!JSON.stringify(clean).includes("secret"));
   assert.throws(() =>
     sanitizeHostReport({
@@ -87,6 +92,72 @@ test("host reports whitelist fields, reject stale/future reports and bound lists
       sampledAt: new Date(Date.now() + 6000).toISOString(),
     }),
   );
+});
+test("Linux host reports identify the installed distribution without evaluating os-release", async (t) => {
+  assert.deepEqual(
+    parseOsRelease('ID=ubuntu\nPRETTY_NAME="Ubuntu 24.04.3 LTS"\nSHELL=$(touch /tmp/nope)'),
+    { distribution: "ubuntu", osName: "Ubuntu 24.04.3 LTS" },
+  );
+  const clean = sanitizeHostReport({
+    ...sample(),
+    distribution: "ubuntu",
+    osName: "Ubuntu 24.04.3 LTS",
+    osReleaseSecret: "must be dropped",
+  });
+  assert.equal(clean.distribution, "ubuntu");
+  assert.equal(clean.osName, "Ubuntu 24.04.3 LTS");
+  assert.ok(!JSON.stringify(clean).includes("must be dropped"));
+  const system = {
+    cpus: () => [{ model: "CPU", times: { user: 1, idle: 9 } }],
+    totalmem: () => 1024,
+    freemem: () => 512,
+    release: () => "6.8.0-generic",
+    hostname: () => "miku",
+    arch: () => "x64",
+    uptime: () => 100,
+    loadavg: () => [0, 0, 0],
+  };
+  const telemetry = await new HostTelemetry({
+    platform: "linux",
+    system,
+    container: false,
+    nativeServices: false,
+    read: async (file) => {
+      if (file === "/etc/os-release")
+        return 'ID=ubuntu\nPRETTY_NAME="Ubuntu 24.04.3 LTS"\n';
+      if (file === "/proc/meminfo")
+        return "MemTotal: 1 kB\nMemAvailable: 0.5 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n";
+      if (file === "/proc/self/mounts") return "";
+      throw new Error("unexpected read");
+    },
+    list: async () => [],
+    run: async () => {
+      throw new Error("no disk tool available");
+    },
+  }).initialize({ poll: false });
+  t.after(() => telemetry.stop());
+  assert.equal(telemetry.status().distribution, "ubuntu");
+  assert.equal(telemetry.status().osName, "Ubuntu 24.04.3 LTS");
+  assert.equal(telemetry.status().scope, "host");
+});
+test("host battery telemetry is read-only and normalized on Linux and macOS", async () => {
+  const linux = await linuxBattery({
+    list: async () => [{ name: "BAT0" }, { name: "AC" }],
+    read: async (file) => {
+      if (file.endsWith("/capacity")) return "42\n";
+      if (file.endsWith("/status")) return "Charging\n";
+      throw new Error("unsupported optional battery field");
+    },
+  });
+  assert.deepEqual(linux, { level: 42, charging: true });
+  assert.deepEqual(parseMacBattery("Now drawing from 'AC Power'\n-InternalBattery-0 (id=1) 84%; charging; 0:22 remaining"), {
+    level: 84,
+    charging: true,
+  });
+  assert.deepEqual(parseMacBattery("-InternalBattery-0 100%; charged; 0:00 remaining"), {
+    level: 100,
+    charging: false,
+  });
 });
 test("stale external telemetry falls back to container quotas and only the mounted data volume", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "haus-host-"));
@@ -220,6 +291,7 @@ test("macOS disk hierarchy converts a read-only plist over stdin; Windows CIM re
       MemoryFree: 400,
       SwapTotal: 500,
       SwapFree: 300,
+      Battery: [{ EstimatedChargeRemaining: 55, BatteryStatus: 6 }],
       Disks: [
         {
           DeviceID: "C:",
@@ -233,6 +305,7 @@ test("macOS disk hierarchy converts a read-only plist over stdin; Windows CIM re
   });
   assert.equal(windows.memory.usedBytes, 600);
   assert.equal(windows.swap.usedBytes, 200);
+  assert.deepEqual(windows.battery, { level: 55, charging: true });
   assert.equal(windows.disks[0].mountpoint, "C:\\");
 });
 test("Docker/PM2 collectors expose status only and never start a stopped PM2 daemon", async () => {
