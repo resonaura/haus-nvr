@@ -1,6 +1,6 @@
 services:
   haus-nvr:
-    image: ghcr.io/resonaura/haus-nvr:0.3.3
+    image: ghcr.io/resonaura/haus-nvr:0.3.4
     restart: unless-stopped
     ports: ["8098:8098"]
     environment:

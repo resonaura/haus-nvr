@@ -94,3 +94,126 @@ test("replicates corrected playback timing and bounded repair diagnostics", asyn
     index.close();
   }
 });
+test("archive catalog preserves explicit original compatibility/provenance without trusting legacy packet versions", async () => {
+  const index = new RecordingIndex(":memory:", {
+    info: async () => ({ size: 10 }),
+  });
+  const base = {
+    id: "a".repeat(36),
+    cameraId: "camera.fixture",
+    startAt: 1000,
+    endAt: 2000,
+    duration: 1,
+    kinds: ["motion"],
+    playbackVersion: 4,
+  };
+  try {
+    await index.add({
+      digest: "a".repeat(64),
+      event: {
+        ...base,
+        playbackInfo: {
+          originalCompatible: false,
+          originalPolicyVersion: 1,
+          compatibilityRepaired: true,
+          originalProvenance: {
+            kind: "camera",
+            platform: "mqtt",
+            manufacturer: "Aqara",
+            model: "G5 Pro",
+            token: "do-not-copy",
+          },
+        },
+      },
+    });
+    assert.deepEqual(index.get(base.id).playbackInfo, {
+      originalCompatible: false,
+      originalPolicyVersion: 1,
+      compatibilityRepaired: true,
+      originalProvenance: {
+        kind: "camera",
+        platform: "mqtt",
+        manufacturer: "Aqara",
+        model: "G5 Pro",
+      },
+    });
+    await index.add({
+      digest: "a".repeat(64),
+      event: { ...base, playbackInfo: { audio: true } },
+    });
+    assert.deepEqual(index.get(base.id).playbackInfo, { audio: true });
+    await index.add({
+      digest: "a".repeat(64),
+      event: {
+        ...base,
+        playbackInfo: {
+          originalCompatible: true,
+          originalPolicyVersion: 1,
+          originalProvenance: {
+            kind: "haus-encoder",
+            profile: 1,
+            encoderArgs: "do-not-copy",
+          },
+        },
+      },
+    });
+    assert.deepEqual(index.get(base.id).playbackInfo, {
+      originalCompatible: true,
+      originalPolicyVersion: 1,
+      originalProvenance: { kind: "haus-encoder", profile: 1 },
+    });
+  } finally {
+    index.close();
+  }
+});
+test("archive provenance rejects unknown policies/profiles and bounds camera labels", async () => {
+  const index = new RecordingIndex(":memory:", {
+    info: async () => ({ size: 10 }),
+  });
+  const base = {
+    id: "a".repeat(36),
+    cameraId: "camera.fixture",
+    startAt: 1000,
+    endAt: 2000,
+    duration: 1,
+    kinds: ["motion"],
+  };
+  try {
+    await index.add({
+      digest: "a".repeat(64),
+      event: {
+        ...base,
+        playbackInfo: {
+          originalCompatible: "true",
+          originalPolicyVersion: 2,
+          compatibilityRepaired: 1,
+          originalProvenance: { kind: "haus-encoder", profile: 99 },
+        },
+      },
+    });
+    assert.deepEqual(index.get(base.id).playbackInfo, {});
+    await index.add({
+      digest: "a".repeat(64),
+      event: {
+        ...base,
+        playbackInfo: {
+          originalProvenance: {
+            kind: "camera",
+            manufacturer: "\0" + "a".repeat(300),
+            platform: 42,
+            model: "Camera\nModel",
+          },
+        },
+      },
+    });
+    assert.deepEqual(index.get(base.id).playbackInfo, {
+      originalProvenance: {
+        kind: "camera",
+        manufacturer: "a".repeat(160),
+        model: "CameraModel",
+      },
+    });
+  } finally {
+    index.close();
+  }
+});
