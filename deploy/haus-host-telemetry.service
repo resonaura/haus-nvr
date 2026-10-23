@@ -1,0 +1,23 @@
+[Unit]
+Description=Haus read-only host telemetry
+After=local-fs.target
+
+[Service]
+Type=simple
+# Use the existing operator account that owns the node and can inspect Docker/PM2.
+# Change these paths/user to the checkout and writable telemetry directory.
+User=haus
+Group=haus
+WorkingDirectory=/opt/haus-nvr
+ExecStart=/usr/bin/node /opt/haus-nvr/lib/host-collector.mjs --output /var/lib/haus-telemetry/host.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/haus-telemetry
+PrivateTmp=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

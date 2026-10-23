@@ -22,8 +22,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: resonaura/haus-helper
-          # Fixed helper 0.3.12 compatibility baseline, including real media catalog selection.
-          ref: bb9b6fae858aa44d1ed7dddda7db35c62fdbf685
+          # Fixed helper 0.3.19 baseline for playback repair and server policy integration.
+          ref: 2f4aa4058a6f109f91248645145135b9d33d7d86
           path: integration-helper
       - run: npm ci --ignore-scripts --prefix integration-helper/haus-helper
       - run: npm run test:integration

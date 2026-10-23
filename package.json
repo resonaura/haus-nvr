@@ -1,6 +1,6 @@
 {
   "name": "haus-nvr",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "description": "Optional storage and media streaming workers for Haus",
@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node lib/main.mjs",
+    "telemetry": "node lib/host-collector.mjs",
     "test": "node --test test/*.test.mjs",
     "check": "node --check lib/main.mjs && npm test",
     "test:integration": "node --test test/integration/*.test.mjs"
