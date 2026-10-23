@@ -1,4 +1,4 @@
-# On-disk archive verification (Haus NVR 0.3.4)
+# On-disk archive verification (Haus NVR 0.3.5)
 
 A helper can retain recent media locally and archive older original/prepared files on NVR nodes. Before releasing local bytes it needs evidence that an actual persisted remote file matches its digest. A filename, successful HEAD request, upload acknowledgement, or recording catalog entry is not such evidence.
 
