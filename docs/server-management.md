@@ -1,6 +1,8 @@
-# Server telemetry and storage policy (Haus NVR 0.3.2)
+# Server telemetry and storage policy (Haus NVR 0.3.3)
 
 Haus NVR 0.3.1 adds server telemetry without giving worker containers host management privileges. Pairing and media API protocol 1 remain compatible.
+
+Version 0.3.3 separates whole disks, partitions, mapped storage containers and mounted volumes. Linux LVM, encryption, RAID and multipath layers no longer inflate the whole-disk count; APFS containers remain attached through their physical stores. Virtual/WSL disks do not claim physical hardware, and unknown physical status stays unknown.
 
 ## Storage policy
 
@@ -70,7 +72,9 @@ host: {
   cpu: {model, logicalCores, usage: 0..1 | null, loadAverage: number[]},
   memory: {totalBytes, availableBytes, usedBytes},
   swap: {supported, totalBytes: number | null, usedBytes: number | null},
-  disks: [{id, name, kind: "disk" | "volume", parentId: string | null,
+  disks: [{id, name, kind: "disk" | "volume",
+           type: "disk" | "partition" | "container" | "volume",
+           physical: boolean | null, parentId: string | null, parentIds: string[],
            mountpoint: string | null, filesystem: string | null,
            totalBytes, usedBytes: number | null, availableBytes: number | null, scope}],
   docker: {available, source: "local" | "host-collector" | "unavailable",
@@ -84,5 +88,7 @@ host: {
 ```
 
 The first native CPU sample has `usage: null`; the next supplies a delta over elapsed CPU time. Unknown metrics remain null. Docker CPU percentages may exceed 100% for multi-core containers; host `cpu.usage` is normalized over all available cores. No synthetic history is generated; clients can keep a bounded history of observed samples.
+
+The coarse `kind` field remains compatible with older clients: only whole block disks use `disk`; other layers use `volume`. The additive `type` field identifies each layer precisely. `physical` is true only when available metadata identifies a physical disk, false for logical/virtual storage, and null when unconfirmed. A stable `parentId` supports existing tree views; `parentIds` preserves up to 16 parents for shared RAID/multipath/APFS storage without duplicating device rows. Native Windows reports fixed volumes; WSL remains Linux telemetry with its WSL kernel release and virtual disk status.
 
 References: [Node OS counters](https://nodejs.org/api/os.html), [Docker stats](https://docs.docker.com/reference/cli/docker/container/stats/), [Docker container listing](https://docs.docker.com/reference/cli/docker/container/ls/), [PM2 process management](https://pm2.keymetrics.io/docs/usage/process-management/).
