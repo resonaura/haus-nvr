@@ -159,6 +159,57 @@ test("host battery telemetry is read-only and normalized on Linux and macOS", as
     charging: false,
   });
 });
+test("missing Linux battery capacity falls back to energy while absent readings stay unknown", async () => {
+  const collect = (values) =>
+    linuxBattery({
+      list: async () => ["BAT0"],
+      read: async (file) => {
+        const field = file.split("/").at(-1);
+        if (!Object.hasOwn(values, field)) throw new Error("unsupported reading");
+        return values[field];
+      },
+    });
+  for (const capacity of [undefined, "", " \n", "not-a-number"])
+    assert.deepEqual(
+      await collect({
+        ...(capacity === undefined ? {} : { capacity }),
+        energy_now: "40000\n",
+        energy_full: "80000\n",
+        status: "Discharging\n",
+      }),
+      { level: 50, charging: false },
+    );
+  assert.deepEqual(
+    await collect({ energy_full: "80000", status: "Charging" }),
+    { level: null, charging: true },
+  );
+  assert.deepEqual(await collect({}), { level: null, charging: null });
+  assert.deepEqual(
+    await collect({ capacity: "0", energy_now: "40000", energy_full: "80000" }),
+    { level: 0, charging: null },
+  );
+});
+
+test("Windows disk use stays unknown when capacity or free space is missing", async () => {
+  const rows = [
+    { DeviceID: "C:", Size: 1000, FreeSpace: null },
+    { DeviceID: "D:", Size: 1000 },
+    { DeviceID: "E:", Size: 1000, FreeSpace: "  " },
+    { DeviceID: "F:", Size: 1000, FreeSpace: 0 },
+    { DeviceID: "G:", Size: null, FreeSpace: 200 },
+    { DeviceID: "H:", Size: 1000, FreeSpace: 400 },
+  ];
+  const { disks } = await windowsTelemetry(async () => JSON.stringify({ Disks: rows }));
+  assert.deepEqual(disks.map((disk) => disk.usedBytes), [null, null, null, 1000, null, 600]);
+  assert.deepEqual(disks.map((disk) => disk.availableBytes), [null, null, null, 0, 200, 400]);
+  assert.equal(disks[4].totalBytes, null);
+  const sanitized = sanitizeHostReport({ ...sample(), disks });
+  assert.equal(sanitized.disks.length, rows.length);
+  assert.equal(sanitized.disks[4].id, "volume:G:");
+  assert.equal(sanitized.disks[4].totalBytes, null);
+  assert.equal(sanitized.disks[4].availableBytes, 200);
+  assert.equal(sanitized.disks[4].usedBytes, null);
+});
 test("stale external telemetry falls back to container quotas and only the mounted data volume", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "haus-host-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
