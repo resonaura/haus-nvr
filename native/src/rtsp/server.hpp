@@ -122,6 +122,8 @@ private:
     std::vector<std::vector<uint8_t>> idr_cache_pkts_;
     std::vector<std::vector<uint8_t>> current_idr_pkts_;
     bool collecting_idr_ = false;
+    uint32_t current_idr_timestamp_ = 0;
+    size_t current_idr_bytes_ = 0;
 
     // Last decodable keyframe in Annex-B (HEVC) form for snapshots
     mutable std::mutex snap_mutex_;

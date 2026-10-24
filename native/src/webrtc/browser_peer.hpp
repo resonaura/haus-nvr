@@ -34,6 +34,10 @@ private:
     std::shared_ptr<rtc::PeerConnection> pc_;
     std::shared_ptr<rtc::Track> video_track_;
     std::shared_ptr<rtc::Track> audio_track_;
+    std::shared_ptr<rtc::RtpPacketizationConfig> video_rtp_config_;
+    std::shared_ptr<rtc::RtpPacketizationConfig> audio_rtp_config_;
+    std::shared_ptr<rtc::RtcpSrReporter> video_reporter_;
+    std::shared_ptr<rtc::RtcpSrReporter> audio_reporter_;
     std::atomic<bool> running_{false};
     std::atomic<bool> answer_sent_{false};
     std::thread receiver_thread_;
