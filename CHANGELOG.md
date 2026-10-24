@@ -1,5 +1,11 @@
 # Haus NVR changelog
 
+## 0.3.17
+
+- Identify actual connection/media types from Linux block/udev metadata and native Windows Storage properties. Distinguish USB HDDs, explicitly reported SSDs or flash drives, SD/MMC and unknown solid-state USB without guessing from names. Export only allowlisted metadata and rebuild each sample for hot removal/reconnect.
+- Prefer the modern Windows disk capacity alongside modern partition sizes; legacy CIM geometry can understate the physical device by several megabytes. Keep CIM as a capability fallback and never rescale contradictory source sizes to make them appear correct.
+- Preserve all admission policies, native WSL backing protection, recordings and media workers. Optional collector updates need the new storage-media module alongside the existing collector files.
+
 ## 0.3.16
 
 - Read actual Windows GPT partition metadata and hidden volume information: identify EFI System, Microsoft Reserved, recovery and data partitions, retain real partition numbers and measured FAT32/NTFS use without mounting a volume or assigning a drive letter. Keep the older CIM fallback when Storage cmdlets are unavailable.
