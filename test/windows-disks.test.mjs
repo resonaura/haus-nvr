@@ -97,3 +97,56 @@ test("CIM executes bounded fixed selectors through WSL interoperability and reje
     /windows_disks_unavailable/,
   );
 });
+
+test("EFI, reserved and recovery partitions retain native purpose, hidden filesystems and actual partition numbers", () => {
+  const value = {
+    Disks: [
+      {
+        Index: 0,
+        Model: "SSD",
+        Size: 1000000,
+        Partitions: [
+          {
+            Index: 0,
+            Number: 1,
+            Size: 100000,
+            GptType: "{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}",
+            FileSystem: "FAT32",
+            VolumeSize: 99000,
+            FreeSpace: 60000,
+            ReadOnly: false,
+          },
+          {
+            Index: 1,
+            Number: 2,
+            Size: 16000,
+            GptType: "e3c9e316-0b5c-4db8-817d-f92df00215ae",
+          },
+          {
+            Index: 3,
+            Number: 4,
+            Size: 100000,
+            GptType: "de94bba4-06d1-4d40-a16a-bfd50179d6ac",
+            FileSystem: "NTFS",
+            VolumeSize: 99000,
+            FreeSpace: 1000,
+          },
+        ],
+      },
+    ],
+  };
+  const disks = parseWindowsDisks(value);
+  assert.deepEqual(
+    disks.slice(1).map((d) => d.partitionRole),
+    ["efi", "reserved", "recovery"],
+  );
+  assert.equal(disks[1].name, "EFI System Partition");
+  assert.equal(disks[1].filesystem, "FAT32");
+  assert.equal(disks[1].usedBytes, 39000);
+  assert.equal(disks[1].mountpoint, null);
+  assert.equal(disks[1].readOnly, false);
+  assert.equal(disks[2].usedBytes, null);
+  assert.equal(disks[2].filesystem, null);
+  assert.equal(disks[3].partitionNumber, 4);
+  assert.equal(disks[3].availableBytes, 1000);
+});

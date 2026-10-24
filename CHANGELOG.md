@@ -2,6 +2,7 @@
 
 ## 0.3.16
 
+- Read actual Windows GPT partition metadata and hidden volume information: identify EFI System, Microsoft Reserved, recovery and data partitions, retain real partition numbers and measured FAT32/NTFS use without mounting a volume or assigning a drive letter. Keep the older CIM fallback when Storage cmdlets are unavailable.
 - Resolve the running WSL distribution's registered VHD and its actual Windows hosting volume through bounded read-only queries. Match the mounted data filesystem by device number; unrelated Windows disks never supply its admission budget.
 - Bound new uploads and temporary media reservations by both Linux filesystem free space and fresh Windows backing free space, retaining the system reserve and user-selected Unlimited/custom policy. Debit committed growth until a newer native sample accounts for it, preventing repeated writes from reusing the same stale capacity.
 - With a host collector configured on WSL, unavailable or stale backing data pauses new growth instead of trusting sparse logical free space. Existing originals/range reads remain available. Preserve Linux resource scope and omit the private VHD path from public telemetry.
