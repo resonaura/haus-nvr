@@ -13,7 +13,16 @@ int main() {
     for (int packet = 0; packet < 240; ++packet)
         video.pace(1200, 9000);
     auto elapsed = steady_clock::now() - start;
-    assert(elapsed >= 160ms && elapsed < 2s);
+    assert(elapsed >= 25ms && elapsed < 1s);
+
+    // A detailed high-resolution keyframe can be large despite low average
+    // bitrate. The old 12-Mbit gate took >500ms, starving WebRTC's decoder.
+    tuya::RtpPacer detailed(true);
+    start = steady_clock::now();
+    for (int packet = 0; packet < 683; ++packet)
+        detailed.pace(1200, 9000);
+    elapsed = steady_clock::now() - start;
+    assert(elapsed >= 90ms && elapsed < 450ms);
 
     std::this_thread::sleep_for(30ms);
     start = steady_clock::now();
