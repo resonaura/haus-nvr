@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { linuxDisks, macDisks } from "../lib/host-platform.mjs";
+import {
+  linuxDisks,
+  linuxDiskPurpose,
+  macDisks,
+} from "../lib/host-platform.mjs";
 import { HostTelemetry, sanitizeHostReport } from "../lib/host-telemetry.mjs";
 
 const filesystem = async () => ({
@@ -15,6 +19,125 @@ const collect = (blockdevices, options = {}) =>
     filesystem,
     ...options,
   });
+
+test("Ubuntu disk purposes follow actual GPT/filesystem/mount metadata and retain unmounted EFI", async () => {
+  const disks = await collect(
+    [
+      {
+        name: "sda",
+        type: "disk",
+        size: 256000,
+        tran: "sata",
+        children: [
+          {
+            name: "sda1",
+            type: "part",
+            size: 1000,
+            fstype: "vfat",
+            parttype: "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+            ro: false,
+            mountpoints: ["/boot/efi"],
+          },
+          {
+            name: "sda2",
+            type: "part",
+            size: 255000,
+            fstype: "ext4",
+            mountpoints: ["/"],
+            ro: false,
+          },
+        ],
+      },
+      {
+        name: "sdb",
+        type: "disk",
+        size: 6000000,
+        tran: "usb",
+        children: [
+          {
+            name: "sdb1",
+            type: "part",
+            size: 5999000,
+            fstype: "ext4",
+            label: "Backup",
+            parttype: "0fc63daf-8483-4772-8e79-3d69d8477de4",
+            mountpoints: ["/export/Backup", "/mnt/backup"],
+          },
+        ],
+      },
+      {
+        name: "sdc",
+        type: "disk",
+        size: 1000000,
+        tran: "sata",
+        children: [
+          {
+            name: "sdc1",
+            type: "part",
+            size: 1000,
+            fstype: "vfat",
+            parttype: "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+            mountpoints: [null],
+          },
+          {
+            name: "sdc2",
+            type: "part",
+            size: 999000,
+            fstype: "ntfs",
+            partlabel: "Data",
+            parttype: "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7",
+            mountpoints: ["/export/NVR", "/mnt/nvr"],
+          },
+        ],
+      },
+    ],
+    {
+      read: async (path) => {
+        assert.match(path, /^\/sys\/class\/block\/sd[a-c][12]\/partition$/);
+        return path.includes("2/") ? "2\n" : "1\n";
+      },
+    },
+  );
+  assert.equal(disks.filter((d) => d.physical === true).length, 3);
+  assert.equal(
+    disks.find((d) => d.id === "block:sda2").partitionRole,
+    "system",
+  );
+  assert.equal(disks.find((d) => d.id === "block:sdc1").partitionRole, "efi");
+  assert.equal(disks.find((d) => d.id === "block:sdc1").usedBytes, null);
+  assert.equal(disks.find((d) => d.id === "block:sdc1").partitionNumber, 1);
+  assert.equal(disks.find((d) => d.id === "block:sdc2").name, "Data");
+  assert.equal(disks.find((d) => d.id === "block:sdc2").partitionNumber, 2);
+  const volume = disks.find((d) => d.mountpoint === "/mnt/nvr");
+  assert.equal(volume.device, "/dev/sdc2");
+  assert.deepEqual(volume.mountpoints, ["/export/NVR", "/mnt/nvr"]);
+  assert.equal(volume.partitionRole, "data");
+  const clean = sanitizeHostReport({
+    sampledAt: new Date().toISOString(),
+    scope: "host",
+    cpu: { logicalCores: 4 },
+    memory: { totalBytes: 1000, usedBytes: 500, availableBytes: 500 },
+    disks,
+  });
+  assert.equal(
+    clean.disks.find((d) => d.id === "block:sda2").partitionRole,
+    "system",
+  );
+  assert.equal(
+    clean.disks.find((d) => d.mountpoint === "/mnt/nvr").mountpoints.length,
+    2,
+  );
+});
+
+test("swap, home and layered storage purposes are explicit while unknown unmounted storage remains unknown", () => {
+  assert.equal(linuxDiskPurpose({ fstype: "swap" }), "swap");
+  assert.equal(linuxDiskPurpose({ fstype: "ext4" }, ["/home"]), "home");
+  assert.equal(linuxDiskPurpose({ fstype: "crypto_LUKS" }), "encrypted");
+  assert.equal(linuxDiskPurpose({ type: "crypt" }), "encrypted");
+  assert.equal(linuxDiskPurpose({ type: "lvm" }), "lvm");
+  assert.equal(linuxDiskPurpose({ type: "raid1" }), "raid");
+  assert.equal(linuxDiskPurpose({}), undefined);
+});
 
 test("Linux storage layers preserve disk/partition/encryption/LVM parents without counting them as physical disks", async () => {
   const disks = await collect([
