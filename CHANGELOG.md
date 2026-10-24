@@ -1,5 +1,10 @@
 # Haus NVR changelog
 
+## 0.3.8
+
+- Install native viewer tracks before applying the browser offer, disable automatic renegotiation, and explicitly generate an answer. Never send a replacement offer with an invalid `actpass` DTLS role as the viewer answer.
+- Exercise repeated native browser-offer negotiations and require a valid answer role for every viewer.
+
 ## 0.3.7
 
 - Preserve high-resolution RTP bursts with bounded receive buffers; expose effective buffer sizes, packet gaps, kernel drops and truncation counters separately for source and viewer ingestion.

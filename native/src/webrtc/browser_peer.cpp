@@ -73,7 +73,10 @@ bool BrowserPeer::start(const std::string& remote_offer) {
     config.bindAddress = "0.0.0.0";
     config.portRangeBegin = 8555;
     config.portRangeEnd = 8586;
-    config.disableAutoNegotiation = false;
+    // The browser owns the offer. Auto-answering before the outgoing tracks
+    // are installed, followed by an implicit local description, can create a
+    // second offer and mislabel its actpass DTLS role as an answer.
+    config.disableAutoNegotiation = true;
     for (const auto& ice : ice_servers_) {
         config.iceServers.push_back(ice);
     }
@@ -98,7 +101,7 @@ bool BrowserPeer::start(const std::string& remote_offer) {
         if (!event_cb_ || !pc_)
             return;
         auto description = pc_->localDescription();
-        if (!description)
+        if (!description || description->type() != rtc::Description::Type::Answer)
             return;
         bool expected = false;
         if (!answer_sent_.compare_exchange_strong(expected, true))
@@ -181,8 +184,6 @@ bool BrowserPeer::start(const std::string& remote_offer) {
         std::cerr << "[BrowserPeer " << viewer_id_ << "] Selected PTs: video=" << int(video_pt_)
                   << ", audio=" << int(audio_pt_) << std::endl;
 
-        pc_->setRemoteDescription(rtc::Description(remote_offer, "offer"));
-
         rtc::Description::Video video("0", rtc::Description::Direction::SendOnly);
         video.addH264Codec(video_pt_, "packetization-mode=1;profile-level-id=42001f;level-asymmetry-allowed=1");
         video.addSSRC(ssrc_, "tuya-browser-video");
@@ -205,7 +206,8 @@ bool BrowserPeer::start(const std::string& remote_offer) {
         audio_track_->onOpen(
             [this]() { std::cerr << "[BrowserPeer " << viewer_id_ << "] Audio track OPENED!" << std::endl; });
 
-        pc_->setLocalDescription();
+        pc_->setRemoteDescription(rtc::Description(remote_offer, "offer"));
+        pc_->setLocalDescription(rtc::Description::Type::Answer);
         answer_timer_thread_ = std::thread([this, emit_answer_if_ready]() {
             for (int i = 0; i < 20 && !answer_sent_.load() && running_.load(); ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
