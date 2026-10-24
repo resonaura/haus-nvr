@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, mkdir, writeFile, stat, utimes } from "node:fs/promises";
+import {
+  mkdtemp,
+  rm,
+  mkdir,
+  readFile,
+  writeFile,
+  stat,
+  utimes,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -270,12 +278,14 @@ test("signed session RPC enforces owner isolation, pre-roll and secret-free stat
   assert.equal(status.rtspSessions.profile, 1);
   assert.equal(JSON.stringify(status).includes("private-password"), false);
 });
-test("stream-copy ring retains actual pre-event video/audio and finalizes a seekable MP4", async (t) => {
+test("stream-copy ring tolerates file-write jitter but rejects real missing footage", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "haus-ring-fixture-"));
   let at = 100000;
   const reservations = [];
+  const diagnostics = [];
   const ring = new CameraRing(root, "rtsp://127.0.0.1:8554/fixture", {
     now: () => at,
+    log: (event, fields) => diagnostics.push({ event, ...fields }),
     reserve: async (bytes) => {
       reservations.push(bytes);
       return () => reservations.splice(reservations.indexOf(bytes), 1);
@@ -335,7 +345,10 @@ test("stream-copy ring retains actual pre-event video/audio and finalizes a seek
     join(root, "%09d.ts"),
   ]);
   for (let i = 0; i < 6; i++) {
-    const timestamp = 90 + i * 2;
+    // Real P2P delivery and filesystem scheduling move close mtimes without
+    // introducing a gap in the encoded media clock. The old per-file clock
+    // mapping rejected these complete recordings as incomplete.
+    const timestamp = 90 + i * 2 + (i % 2 ? 0.8 : 0);
     await utimes(
       join(root, `${String(i).padStart(9, "0")}.ts`),
       timestamp,
@@ -369,6 +382,86 @@ test("stream-copy ring retains actual pre-event video/audio and finalizes a seek
     metadata.streams.some((row) => row.codec_type === "audio"),
     true,
   );
+
+  // Omitting a real media segment must still fail. The change is only the
+  // wall-clock mapping; it must not turn an actual hole into a valid clip.
+  const csv = await readFile(join(root, "segments.csv"), "utf8");
+  await writeFile(
+    join(root, "segments.csv"),
+    csv
+      .split("\n")
+      .filter((_, index) => index !== 3)
+      .join("\n"),
+  );
+  await ring.sample();
+  const missingId = randomUUID();
+  await ring.record({ eventId: missingId, startAt: 92000, endAt: 100000 });
+  await ring.finalizing;
+  assert.equal(ring.jobs.get(missingId).state, "failed");
+  assert.equal(
+    reservations.length,
+    2,
+    "failed capture releases its disk reservation after cleanup",
+  );
+  assert.deepEqual(diagnostics, [
+    {
+      event: "recording_finalization_failed",
+      eventId: missingId,
+      stage: "coverage",
+      reason: "camera_recording_incomplete",
+      parts: 3,
+    },
+  ]);
+  assert.ok(
+    (await stat(job.output)).size > 0,
+    "a later failure cannot remove the earlier original",
+  );
   await ring.stop();
   assert.equal(reservations.length, 0);
+});
+
+test("ring media clocks stay fixed across samples and restart independently", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "haus-ring-clock-"));
+  const ring = new CameraRing(root, "rtsp://127.0.0.1:8554/fixture", {
+    now: () => 108000,
+    probe: async () => ({ video: true, audio: true, duration: 2 }),
+  });
+  t.after(async () => {
+    await ring.stop();
+    await rm(root, { recursive: true, force: true });
+  });
+  const files = [
+    ["000000000000.ts", 102],
+    ["000000000001.ts", 104.8],
+    ["001000000000.ts", 108],
+  ];
+  for (const [name, at] of files) {
+    await writeFile(join(root, name), "fixture");
+    await utimes(join(root, name), at, at);
+  }
+  await writeFile(
+    join(root, "segments-000.csv"),
+    "000000000000.ts,0,2\n000000000001.ts,2,4\n",
+  );
+  await writeFile(join(root, "segments-001.csv"), "001000000000.ts,0,2\n");
+  await ring.sample();
+  assert.deepEqual(
+    ring.segments.map((s) => [s.startAt, s.endAt]),
+    [
+      [100000, 102000],
+      [102000, 104000],
+      [106000, 108000],
+    ],
+  );
+  assert.equal(ring.runClocks.size, 2);
+  await utimes(join(root, "000000000000.ts"), 103, 103);
+  await ring.sample();
+  assert.deepEqual(
+    ring.segments.map((s) => [s.startAt, s.endAt]),
+    [
+      [100000, 102000],
+      [102000, 104000],
+      [106000, 108000],
+    ],
+  );
 });
