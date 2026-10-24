@@ -309,7 +309,7 @@ test(
     const jobId = job.id,
       recordingDeadline = Date.now() + 20000;
     while (
-      ring.jobs.get(jobId)?.state === "recording" &&
+      ["recording", "preparing"].includes(ring.jobs.get(jobId)?.state) &&
       Date.now() < recordingDeadline
     ) {
       await ring.sample();

@@ -172,6 +172,19 @@ void IpcServer::handle_command(const std::string& line) {
         relay->set_media_ready_callback([this, did = cmd_dto.did]() {
             send_event(to_json(EventRelayReady{.did = did}));
         });
+        relay->set_ingest_stats_callback([this, did = cmd_dto.did](bool video, const RtpIngressStats& stats) {
+            send_event(to_json(EventRtpStats{
+                .did = did,
+                .stage = "source",
+                .media = video ? "video" : "audio",
+                .packets = stats.packets,
+                .bytes = stats.bytes,
+                .sequence_gaps = stats.sequence_gaps,
+                .kernel_drops = stats.kernel_drops,
+                .truncated = stats.truncated,
+                .receive_buffer_bytes = stats.receive_buffer_bytes,
+            }));
+        });
         if (!relay->start() || !relay->start_udp_ingest(cmd_dto.rtp_port, cmd_dto.audio_rtp_port)) {
             relay->stop();
             send_event(to_json(EventError{.did = cmd_dto.did, .message = "Failed to start H264 relay"}));

@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <netinet/in.h>
 #include "../media/reassembler.hpp"
+#include "../media/rtp_ingress.hpp"
 
 namespace tuya {
 
@@ -18,6 +19,7 @@ struct RTSPClientSession {
     std::string session_id;
     bool is_playing = false;
     bool wait_idr = true;
+    bool wait_idr_started = false;
     uint8_t video_rtp_channel = 0;
     uint8_t video_rtcp_channel = 1;
     uint8_t audio_rtp_channel = 2;
@@ -69,6 +71,7 @@ public:
 
     void set_snapshot_callback(std::function<void(const std::vector<uint8_t>&)> cb);
     void set_media_ready_callback(std::function<void()> cb);
+    void set_ingest_stats_callback(std::function<void(bool, const RtpIngressStats&)> cb);
     std::vector<uint8_t> get_latest_annexb() const;
     void clear_snapshot_annexb();
 
@@ -125,6 +128,7 @@ private:
     std::vector<uint8_t> snapshot_annexb_;
     std::function<void(const std::vector<uint8_t>&)> snap_cb_;
     std::function<void()> media_ready_cb_;
+    std::function<void(bool, const RtpIngressStats&)> ingest_stats_cb_;
     std::atomic<bool> media_video_ready_{false};
     std::atomic<bool> media_audio_ready_{false};
     std::atomic<bool> media_ready_sent_{false};

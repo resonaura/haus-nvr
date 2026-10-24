@@ -1,6 +1,6 @@
 {
   "name": "haus-nvr",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "type": "module",
   "description": "Optional storage and media streaming workers for Haus",
