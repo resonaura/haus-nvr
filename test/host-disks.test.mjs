@@ -275,6 +275,96 @@ test("WSL release does not become Windows native telemetry or physical host disk
   assert.equal(telemetry.status().platform, "linux");
   assert.match(telemetry.status().release, /WSL2/);
   assert.equal(telemetry.status().disks[0].physical, false);
-  assert.deepEqual(commands, ["lsblk"]);
+  assert.deepEqual(commands, [
+    "lsblk",
+    "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+  ]);
+  telemetry.stop();
+});
+
+test("WSL collector uses real Windows disk relationships but retains Linux scope and WSL filesystem details", async () => {
+  let now = 1000,
+    failed = false;
+  const system = {
+    cpus: () => [{ model: "CPU", times: { user: 1, idle: 9 } }],
+    totalmem: () => 1000,
+    freemem: () => 500,
+    release: () => "6.6.87.2-microsoft-standard-WSL2",
+    hostname: () => "host",
+    arch: () => "x64",
+    uptime: () => 100,
+    loadavg: () => [0, 0, 0],
+  };
+  const telemetry = new HostTelemetry({
+    platform: "linux",
+    container: false,
+    system,
+    now: () => now,
+    read: async () => "",
+    list: async () => [],
+    run: async (file) => {
+      if (file === "lsblk")
+        return JSON.stringify({
+          blockdevices: [
+            {
+              name: "sda",
+              type: "disk",
+              size: 1081,
+              tran: "scsi",
+              fstype: "ext4",
+              mountpoints: ["/"],
+            },
+          ],
+        });
+      if (failed) throw Error("CIM temporarily unavailable");
+      assert.equal(
+        file,
+        "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+      );
+      return JSON.stringify({
+        Disks: [
+          {
+            Index: 0,
+            Model: "Actual SSD",
+            Size: 256,
+            Partitions: [
+              {
+                Index: 0,
+                Size: 254,
+                Volumes: [{ DeviceID: "C:", Size: 254, FreeSpace: 62 }],
+              },
+            ],
+          },
+        ],
+      });
+    },
+  });
+  await telemetry.initialize({ poll: false });
+  const report = telemetry.status();
+  assert.equal(report.platform, "linux");
+  assert.match(report.release, /WSL2/);
+  assert.deepEqual(
+    report.disks.map((disk) => disk.type),
+    ["disk", "partition", "volume", "container"],
+  );
+  assert.equal(report.disks[0].physical, true);
+  assert.equal(report.disks[0].totalBytes, 256);
+  assert.equal(report.disks.at(-1).id, "wsl:root");
+  assert.equal(report.disks.at(-1).mountpoint, "/");
+  assert.equal(report.disks.at(-1).physical, false);
+  now = 2000;
+  failed = true;
+  await telemetry.sample();
+  assert.equal(telemetry.status(), report);
+  assert.equal(telemetry.status().sampledAt, new Date(1000).toISOString());
+  now = 40000;
+  await telemetry.sample();
+  assert.throws(
+    () => sanitizeHostReport(telemetry.status(), now),
+    /invalid_host_report/,
+  );
+  failed = false;
+  await telemetry.sample();
+  assert.equal(telemetry.status().sampledAt, new Date(now).toISOString());
   telemetry.stop();
 });
