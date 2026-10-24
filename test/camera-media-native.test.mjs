@@ -298,6 +298,8 @@ test(
     assert.equal(answer.answer.type, "answer");
     assert.match(answer.answer.sdp, /H264\/90000/);
     assert.match(answer.answer.sdp, /opus\/48000/i);
+    assert.match(answer.answer.sdp, /a=setup:(active|passive)\r?$/m);
+    assert.doesNotMatch(answer.answer.sdp, /a=setup:actpass/);
     assert.equal(engine.viewers.size, 1);
     engine.closeViewer(answer.viewerId, "fixture-owner-123456789");
     assert.equal(
