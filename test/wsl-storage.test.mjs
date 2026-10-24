@@ -48,7 +48,7 @@ test("WSL resolves only its exact distribution/VHD and hosting volume with bound
   const script = Buffer.from(calls[1].args.at(-1), "base64").toString(
     "utf16le",
   );
-  assert.match(script, /GetValue\('DistributionName'\) -ceq \$name/);
+  assert.match(script, /\$_.DistributionName -ceq \$name/);
   assert.match(script, /Get-Volume -FilePath \$file/);
   assert.match(script, /\$base\.StartsWith/);
   assert.doesNotMatch(script, /-replace/);
