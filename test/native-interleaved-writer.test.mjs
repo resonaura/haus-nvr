@@ -9,6 +9,32 @@ import { fileURLToPath } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const compiler = process.env.CXX || "c++";
 
+test("native viewer RTP stays continuous when its local reader restarts", async (t) => {
+  const available = spawnSync(compiler, ["--version"]);
+  if (available.error?.code === "ENOENT") {
+    t.skip("C++ compiler is unavailable");
+    return;
+  }
+  const directory = await mkdtemp(join(tmpdir(), "haus-rtp-continuity-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const binary = join(directory, "continuity-test");
+  const compile = spawnSync(
+    compiler,
+    [
+      "-std=c++17",
+      "-I",
+      join(root, "native/src"),
+      join(root, "test/fixtures/rtp-continuity.cpp"),
+      "-o",
+      binary,
+    ],
+    { encoding: "utf8", timeout: 30000 },
+  );
+  assert.equal(compile.status, 0, compile.stderr || compile.error?.message);
+  const result = spawnSync(binary, [], { encoding: "utf8", timeout: 5000 });
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+});
+
 test("native RTSP writer completes partial TCP frames and bounds stalled readers", async (t) => {
   const available = spawnSync(compiler, ["--version"]);
   if (available.error?.code === "ENOENT") {

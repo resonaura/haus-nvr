@@ -182,6 +182,7 @@ void IpcServer::handle_command(const std::string& line) {
                 .sequence_gaps = stats.sequence_gaps,
                 .kernel_drops = stats.kernel_drops,
                 .truncated = stats.truncated,
+                .source_restarts = stats.source_restarts,
                 .receive_buffer_bytes = stats.receive_buffer_bytes,
             }));
         });

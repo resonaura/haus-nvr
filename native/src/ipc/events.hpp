@@ -123,6 +123,7 @@ struct EventRtpStats {
     uint64_t sequence_gaps = 0;
     uint64_t kernel_drops = 0;
     uint64_t truncated = 0;
+    uint64_t source_restarts = 0;
     int receive_buffer_bytes = 0;
 };
 
