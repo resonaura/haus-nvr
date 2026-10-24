@@ -44,6 +44,12 @@ test("native Windows OS and every GPU remain distinct from WSL resources and uns
   assert.ok(!JSON.stringify(report).includes("private"));
 });
 test("unsupported native queries stay unavailable instead of becoming zero adapters", () => {
+  assert.equal(
+    sanitizeHardware({
+      operatingSystem: { name: "Windows", source: "windows-cim" },
+    }).operatingSystem,
+    undefined,
+  );
   assert.equal(parseWindowsHardware({ GPUs: null }).gpus.available, false);
   assert.equal(parseWindowsHardware({ GPUs: [] }).gpus.available, true);
   assert.equal(
