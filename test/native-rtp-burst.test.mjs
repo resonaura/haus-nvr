@@ -90,7 +90,7 @@ async function rtspReader(port, path) {
           header.match(/Content-Length:\s*(\d+)/i)?.[1] ?? 0,
         );
         if (pending.length < end + 4 + bodyLength) return;
-        responses.push(header);
+        responses.push(pending.subarray(0, end + 4 + bodyLength).toString());
         pending = pending.subarray(end + 4 + bodyLength);
       }
     }
@@ -116,6 +116,7 @@ async function rtspReader(port, path) {
         item.includes(`CSeq: ${sequence}\r\n`),
       );
       assert.match(response, /^RTSP\/1\.0 200 OK/);
+      return response;
     },
   };
 }
@@ -145,6 +146,94 @@ function fragmentedFrame(nalType, count, sequence, timestamp) {
     return rtp(payload, sequence + fragment, timestamp, fragment === count - 1);
   });
 }
+
+test(
+  "late readers receive every slice of a cached H264 picture and valid extracted STAP parameter sets",
+  { skip: !binary, timeout: 10000 },
+  async (t) => {
+    const source = worker(),
+      sender = dgram.createSocket("udp4");
+    let reader;
+    t.after(async () => {
+      reader?.socket.destroy();
+      sender.close();
+      if (source.child.exitCode === null) {
+        const closed = once(source.child, "close");
+        source.child.kill("SIGKILL");
+        await closed;
+      }
+    });
+    await source.event("ready");
+    const rtspPort = await freePort(),
+      videoPort = await freePort(true),
+      audioPort = await freePort(true),
+      did = randomUUID();
+    source.send({
+      cmd: "start_relay",
+      did,
+      rtsp_port: rtspPort,
+      rtp_port: videoPort,
+      audio_rtp_port: audioPort,
+      rtsp_path: did,
+    });
+    await source.event("relay_started");
+    const sps = Buffer.from([0x67, 0x42, 0x00, 0x28]),
+      pps = Buffer.from([0x68, 0xce, 0x06]);
+    const length = (value) => {
+      const bytes = Buffer.alloc(2);
+      bytes.writeUInt16BE(value.length);
+      return bytes;
+    };
+    const stap = rtp(
+      Buffer.concat([Buffer.from([0x78]), length(sps), sps, length(pps), pps]),
+      0,
+      9000,
+      false,
+    );
+    const slices = [
+      ...fragmentedFrame(5, 2, 1, 9000),
+      ...fragmentedFrame(5, 2, 3, 9000),
+    ];
+    slices[1][1] &= 0x7f; // FU end ends the first slice, not the whole picture.
+    for (const packet of [
+      stap,
+      ...slices,
+      rtp(Buffer.from([0x41, 0x99]), 5, 15000),
+    ])
+      await new Promise((resolve, reject) =>
+        sender.send(packet, videoPort, "127.0.0.1", (error) =>
+          error ? reject(error) : resolve(),
+        ),
+      );
+    await delay(25);
+    reader = await rtspReader(rtspPort, did);
+    const describe = await reader.request("DESCRIBE");
+    assert.match(describe, /profile-level-id=420028/);
+    assert.ok(
+      describe.includes(
+        "sprop-parameter-sets=" +
+          sps.toString("base64") +
+          "," +
+          pps.toString("base64"),
+      ),
+      "SDP parameter sets contain individual NAL units, never the STAP header",
+    );
+    await reader.request(
+      "SETUP",
+      "/track0",
+      "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n",
+    );
+    await reader.request("PLAY");
+    await waitUntil(
+      () => reader.packets.length >= 6,
+      "both cached IDR slices reached the late reader",
+    );
+    assert.deepEqual(
+      reader.packets.map((packet) => packet.subarray(12)),
+      [sps, pps, ...slices.map((packet) => packet.subarray(12))],
+    );
+  },
+);
 
 async function availableReceiveBuffer() {
   const socket = dgram.createSocket("udp4");

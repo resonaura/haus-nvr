@@ -900,7 +900,7 @@ static inline uint8_t linear_to_mulaw(int16_t pcm_val) {
 }
 
 void RTSPServer::feed_raw_rtp(const uint8_t* data, size_t len, bool is_video) {
-    if (!data || len < 12)
+    if (!data || len <= 12)
         return;
 
     if (!is_video) {
@@ -959,10 +959,20 @@ void RTSPServer::feed_raw_rtp(const uint8_t* data, size_t len, bool is_video) {
         const bool is_fu = nal_type == 28 && len >= 14;
         const uint8_t fu_type = is_fu ? (data[13] & 0x1F) : 0;
         const bool fu_start = is_fu && (data[13] & 0x80);
-        const bool fu_end = is_fu && (data[13] & 0x40);
         bool is_sps = nal_type == 7;
         bool is_pps = nal_type == 8;
         bool stap_has_idr = false;
+        std::vector<uint8_t> parameter_sps, parameter_pps;
+        auto parameter_packet = [&](const uint8_t* nalu, size_t size) {
+            std::vector<uint8_t> packet(data, data + 12);
+            packet[1] &= 0x7f;
+            packet.insert(packet.end(), nalu, nalu + size);
+            return packet;
+        };
+        if (is_sps)
+            parameter_sps = parameter_packet(data + 12, len - 12);
+        if (is_pps)
+            parameter_pps = parameter_packet(data + 12, len - 12);
         if (nal_type == 24) {
             size_t offset = 13;
             while (offset + 2 <= len) {
@@ -971,6 +981,10 @@ void RTSPServer::feed_raw_rtp(const uint8_t* data, size_t len, bool is_video) {
                 if (nalu_len == 0 || offset + nalu_len > len)
                     break;
                 const uint8_t stap_type = data[offset] & 0x1F;
+                if (stap_type == 7)
+                    parameter_sps = parameter_packet(data + offset, nalu_len);
+                if (stap_type == 8)
+                    parameter_pps = parameter_packet(data + offset, nalu_len);
                 is_sps = is_sps || stap_type == 7;
                 is_pps = is_pps || stap_type == 8;
                 stap_has_idr = stap_has_idr || stap_type == 5;
@@ -979,23 +993,31 @@ void RTSPServer::feed_raw_rtp(const uint8_t* data, size_t len, bool is_video) {
         }
         const bool is_idr_start = nal_type == 5 || stap_has_idr || (fu_start && fu_type == 5);
         const bool is_idr_packet = nal_type == 5 || stap_has_idr || (is_fu && fu_type == 5);
-        const bool is_idr_end = nal_type == 5 || stap_has_idr || (fu_end && fu_type == 5);
+        // A FU end terminates one slice. Only the RTP marker completes the
+        // access unit; high-resolution cameras can encode several IDR slices.
+        const bool is_idr_end = is_idr_packet && (data[1] & 0x80);
         if (is_idr_end)
             notify_media_ready(true, false);
         const bool is_parameter_packet = is_sps || is_pps;
 
         {
             std::lock_guard<std::mutex> lock(param_mutex_);
-            if (is_sps)
-                sps_pkt_.assign(data, data + len);
-            if (is_pps && !is_sps)
-                pps_pkt_.assign(data, data + len);
-            if (is_sps && is_pps)
-                pps_pkt_.clear();
+            if (!parameter_sps.empty())
+                sps_pkt_ = std::move(parameter_sps);
+            if (!parameter_pps.empty())
+                pps_pkt_ = std::move(parameter_pps);
         }
-        if (is_idr_start) {
-            collecting_idr_ = true;
+        const uint32_t timestamp = (uint32_t(data[4]) << 24) | (uint32_t(data[5]) << 16) |
+                                   (uint32_t(data[6]) << 8) | data[7];
+        if (collecting_idr_ && timestamp != current_idr_timestamp_) {
+            collecting_idr_ = false;
             current_idr_pkts_.clear();
+        }
+        if (is_idr_start && !collecting_idr_) {
+            collecting_idr_ = true;
+            current_idr_timestamp_ = timestamp;
+            current_idr_pkts_.clear();
+            current_idr_bytes_ = 0;
             std::lock_guard<std::mutex> lock(param_mutex_);
             if (!sps_pkt_.empty())
                 current_idr_pkts_.push_back(sps_pkt_);
@@ -1003,6 +1025,12 @@ void RTSPServer::feed_raw_rtp(const uint8_t* data, size_t len, bool is_video) {
                 current_idr_pkts_.push_back(pps_pkt_);
         }
         if (collecting_idr_ && is_idr_packet) {
+            current_idr_bytes_ += len;
+            if (current_idr_bytes_ > 8 * 1024 * 1024 || current_idr_pkts_.size() >= 8192) {
+                collecting_idr_ = false;
+                current_idr_pkts_.clear();
+                return;
+            }
             current_idr_pkts_.emplace_back(data, data + len);
             if (is_idr_end) {
                 collecting_idr_ = false;

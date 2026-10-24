@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include "ipc/events.hpp"
 #include "media/rtp_ingress.hpp"
+#include "media/rtp_pacer.hpp"
 
 namespace tuya {
 
@@ -186,11 +187,14 @@ bool BrowserPeer::start(const std::string& remote_offer) {
 
         rtc::Description::Video video("0", rtc::Description::Direction::SendOnly);
         video.addH264Codec(video_pt_, "packetization-mode=1;profile-level-id=42001f;level-asymmetry-allowed=1");
-        video.addSSRC(ssrc_, "tuya-browser-video");
+        video.addSSRC(ssrc_, "haus-camera");
         video_track_ = pc_->addTrack(video);
         // A single missing fragment otherwise damages every dependent picture
         // until the next IDR. Keep a bounded retransmission history for RTCP NACK.
-        video_track_->setMediaHandler(std::make_shared<rtc::RtcpNackResponder>(2048));
+        video_rtp_config_ = std::make_shared<rtc::RtpPacketizationConfig>(ssrc_, "haus-camera", video_pt_, 90000);
+        video_reporter_ = std::make_shared<rtc::RtcpSrReporter>(video_rtp_config_);
+        video_reporter_->addToChain(std::make_shared<rtc::RtcpNackResponder>(2048));
+        video_track_->setMediaHandler(video_reporter_);
         video_track_->onOpen([this]() {
             std::cerr << "[BrowserPeer " << viewer_id_ << "] Video track OPENED (WebRTC streaming active)!"
                       << std::endl;
@@ -200,9 +204,12 @@ bool BrowserPeer::start(const std::string& remote_offer) {
 
         rtc::Description::Audio audio("1", rtc::Description::Direction::SendOnly);
         audio.addOpusCodec(audio_pt_);
-        audio.addSSRC(audio_ssrc_, "tuya-browser-audio");
+        audio.addSSRC(audio_ssrc_, "haus-camera");
         audio_track_ = pc_->addTrack(audio);
-        audio_track_->setMediaHandler(std::make_shared<rtc::RtcpNackResponder>(512));
+        audio_rtp_config_ = std::make_shared<rtc::RtpPacketizationConfig>(audio_ssrc_, "haus-camera", audio_pt_, 48000);
+        audio_reporter_ = std::make_shared<rtc::RtcpSrReporter>(audio_rtp_config_);
+        audio_reporter_->addToChain(std::make_shared<rtc::RtcpNackResponder>(512));
+        audio_track_->setMediaHandler(audio_reporter_);
         audio_track_->onOpen(
             [this]() { std::cerr << "[BrowserPeer " << viewer_id_ << "] Audio track OPENED!" << std::endl; });
 
@@ -237,6 +244,8 @@ bool BrowserPeer::start(const std::string& remote_offer) {
 void BrowserPeer::receive_loop(int socket_fd, bool is_video) {
     std::array<uint8_t, 2048> buffer{};
     RtpIngress ingress(socket_fd, is_video);
+    RtpPacer pacer(is_video);
+    auto last_sender_report = std::chrono::steady_clock::time_point{};
     const auto report = [&]() {
         if (event_cb_)
             event_cb_(to_json(EventRtpStats{
@@ -272,6 +281,19 @@ void BrowserPeer::receive_loop(int socket_fd, bool is_video) {
         if (!track || !track->isOpen())
             continue;
         try {
+            pacer.pace(static_cast<size_t>(len), header->timestamp());
+            if (!running_)
+                break;
+            const auto config = is_video ? video_rtp_config_ : audio_rtp_config_;
+            const auto reporter = is_video ? video_reporter_ : audio_reporter_;
+            if (config && reporter) {
+                config->timestamp = header->timestamp();
+                const auto now = std::chrono::steady_clock::now();
+                if (now - last_sender_report >= std::chrono::seconds(1)) {
+                    reporter->setNeedsToReport();
+                    last_sender_report = now;
+                }
+            }
             track->send(reinterpret_cast<const std::byte*>(buffer.data()), static_cast<size_t>(len));
         } catch (...) {
         }
