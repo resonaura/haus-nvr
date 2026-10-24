@@ -34,6 +34,7 @@ struct RtpIngressStats {
     uint64_t sequence_gaps = 0;
     uint64_t kernel_drops = 0;
     uint64_t truncated = 0;
+    uint64_t source_restarts = 0;
     int receive_buffer_bytes = 0;
 };
 
@@ -72,6 +73,13 @@ public:
         if (length < 12 || (data[0] >> 6) != 2)
             return 0;
         const uint16_t sequence = (static_cast<uint16_t>(data[2]) << 8) | data[3];
+        const uint32_t source = (uint32_t(data[8]) << 24) | (uint32_t(data[9]) << 16) |
+                                (uint32_t(data[10]) << 8) | data[11];
+        if (has_sequence && source != last_source) {
+            has_sequence = false;
+            ++stats.source_restarts;
+        }
+        last_source = source;
         if (has_sequence) {
             const uint16_t delta = sequence - last_sequence;
             if (delta > 0 && delta < 0x8000) {
@@ -102,6 +110,7 @@ public:
 private:
     bool has_sequence = false;
     uint16_t last_sequence = 0;
+    uint32_t last_source = 0;
     std::chrono::steady_clock::time_point last_report = std::chrono::steady_clock::now();
 };
 

@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include "ipc/events.hpp"
 #include "media/rtp_ingress.hpp"
+#include "media/rtp_continuity.hpp"
 #include "media/rtp_pacer.hpp"
 
 namespace tuya {
@@ -245,6 +246,7 @@ void BrowserPeer::receive_loop(int socket_fd, bool is_video) {
     std::array<uint8_t, 2048> buffer{};
     RtpIngress ingress(socket_fd, is_video);
     RtpPacer pacer(is_video);
+    RtpContinuity continuity(is_video ? 90000 : 48000);
     auto last_sender_report = std::chrono::steady_clock::time_point{};
     const auto report = [&]() {
         if (event_cb_)
@@ -258,6 +260,7 @@ void BrowserPeer::receive_loop(int socket_fd, bool is_video) {
                 .sequence_gaps = ingress.stats.sequence_gaps,
                 .kernel_drops = ingress.stats.kernel_drops,
                 .truncated = ingress.stats.truncated,
+                .source_restarts = ingress.stats.source_restarts,
                 .receive_buffer_bytes = ingress.stats.receive_buffer_bytes,
             }));
     };
@@ -274,6 +277,9 @@ void BrowserPeer::receive_loop(int socket_fd, bool is_video) {
         auto* header = reinterpret_cast<rtc::RtpHeader*>(buffer.data());
         if (header->version() != 2)
             continue;
+        const auto packet = continuity.map(header->ssrc(), header->seqNumber(), header->timestamp());
+        header->setSeqNumber(packet.sequence);
+        header->setTimestamp(packet.timestamp);
         header->setPayloadType(is_video ? video_pt_ : audio_pt_);
         header->setSsrc(is_video ? ssrc_ : audio_ssrc_);
 

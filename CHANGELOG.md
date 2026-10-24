@@ -1,5 +1,11 @@
 # Haus NVR changelog
 
+## 0.3.11
+
+- Preserve the browser's RTP sequence and media clocks when a local FFmpeg viewer reader reconnects with new random RTP origins. Keep source packet gaps/reordering intact and forward encoded payloads unchanged; the existing WebRTC/SRTP session can resume instead of remaining connected with a frozen picture.
+- Count publisher changes separately from packet loss in bounded RTP diagnostics. A reconnect must not appear as thousands of missing packets.
+- Add deterministic video/audio clock, sequence wrap, reordering and socket-ingress regressions. An isolated Chromium test reproduces the pre-fix freeze at 8.3 seconds after killing the reader; the fixed viewer resumes in the same peer with audio. Physical source corruption remains a separate open finding.
+
 ## 0.3.10
 
 - Replay cached SPS/PPS and IDR slices at the same picture timestamp. Old parameter-set timestamps must not create a long synthetic gap before a late viewer’s first frame.

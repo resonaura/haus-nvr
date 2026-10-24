@@ -45,6 +45,7 @@ test("RTP diagnostics retain bounded counters without native payloads or source 
     sequence_gaps: 3,
     kernel_drops: 3,
     truncated: 0,
+    source_restarts: 2,
     receive_buffer_bytes: 8388608,
     source: "rtsp://secret@192.168.1.1/private",
     sdp: "private-sdp",
@@ -60,6 +61,7 @@ test("RTP diagnostics retain bounded counters without native payloads or source 
       sequence_gaps: 3,
       kernel_drops: 3,
       truncated: 0,
+      source_restarts: 2,
       receive_buffer_bytes: 8388608,
     },
   ]);
