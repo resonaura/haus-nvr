@@ -497,3 +497,32 @@ test("WSL collector uses real Windows disk relationships but retains Linux scope
   assert.equal(telemetry.status().sampledAt, new Date(now).toISOString());
   telemetry.stop();
 });
+
+test("missing APFS volume allocation never borrows pool-wide statfs use", async () => {
+  const disks = await macDisks({
+    run: async (file) =>
+      file.endsWith("diskutil")
+        ? "<plist/>"
+        : JSON.stringify({
+            AllDisksAndPartitions: [
+              {
+                DeviceIdentifier: "disk3",
+                Content: "Apple_APFS_Container",
+                Size: 1000,
+                APFSVolumes: [
+                  {
+                    DeviceIdentifier: "disk3s1",
+                    VolumeName: "Data",
+                    Content: "apfs",
+                    Size: 1000,
+                    MountPoint: "/Data",
+                  },
+                ],
+              },
+            ],
+          }),
+    filesystem,
+  });
+  assert.equal(disks[1].usedBytes, null);
+  assert.equal(disks[1].availableBytes, 350);
+});
