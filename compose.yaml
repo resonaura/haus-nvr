@@ -1,8 +1,8 @@
 services:
   haus-nvr:
-    image: ghcr.io/resonaura/haus-nvr:0.3.4
+    image: ghcr.io/resonaura/haus-nvr:0.3.6
     restart: unless-stopped
-    ports: ["8098:8098"]
+    ports: ["8098:8098", "8555-8586:8555-8586/udp"]
     environment:
       HAUS_NODE_ID: ${HAUS_NODE_ID:-nvr-1}
       HAUS_NODE_KEY: ${HAUS_NODE_KEY:?Set a unique pairing key in .env}
