@@ -46,6 +46,7 @@ function worker() {
   });
   return {
     child,
+    events,
     send(command) {
       child.stdin.write(`${JSON.stringify(command)}\n`);
     },
@@ -148,7 +149,7 @@ function fragmentedFrame(nalType, count, sequence, timestamp) {
 }
 
 test(
-  "late readers receive every slice of a cached H264 picture and valid extracted STAP parameter sets",
+  "late readers receive complete cached H264 pictures with current parameter timestamps",
   { skip: !binary, timeout: 10000 },
   async (t) => {
     const source = worker(),
@@ -177,6 +178,20 @@ test(
       rtsp_path: did,
     });
     await source.event("relay_started");
+    const audio = rtp(Buffer.from([0, 16, 0, 8, 0]), 0, 16000);
+    audio[1] = 0x80 | 97;
+    await new Promise((resolve) =>
+      sender.send(audio, audioPort, "127.0.0.1", resolve),
+    );
+    const partialIdr = rtp(Buffer.from([0x7c, 0x45, 0x99]), 0, 8000);
+    await new Promise((resolve) =>
+      sender.send(partialIdr, videoPort, "127.0.0.1", resolve),
+    );
+    await delay(25);
+    assert.ok(
+      !source.events.some((event) => event.event === "relay_ready"),
+      "an IDR tail without parameters or a complete cached picture is not playable media",
+    );
     const sps = Buffer.from([0x67, 0x42, 0x00, 0x28]),
       pps = Buffer.from([0x68, 0xce, 0x06]);
     const length = (value) => {
@@ -191,8 +206,8 @@ test(
       false,
     );
     const slices = [
-      ...fragmentedFrame(5, 2, 1, 9000),
-      ...fragmentedFrame(5, 2, 3, 9000),
+      ...fragmentedFrame(5, 2, 1, 1800000),
+      ...fragmentedFrame(5, 2, 3, 1800000),
     ];
     slices[1][1] &= 0x7f; // FU end ends the first slice, not the whole picture.
     for (const packet of [
@@ -205,7 +220,7 @@ test(
           error ? reject(error) : resolve(),
         ),
       );
-    await delay(25);
+    await source.event("relay_ready");
     reader = await rtspReader(rtspPort, did);
     const describe = await reader.request("DESCRIBE");
     assert.match(describe, /profile-level-id=420028/);
@@ -231,6 +246,11 @@ test(
     assert.deepEqual(
       reader.packets.map((packet) => packet.subarray(12)),
       [sps, pps, ...slices.map((packet) => packet.subarray(12))],
+    );
+    assert.equal(
+      new Set(reader.packets.map((packet) => packet.readUInt32BE(4))).size,
+      1,
+      "cached parameter sets must use the cached picture timestamp, not their older source GOP",
     );
   },
 );

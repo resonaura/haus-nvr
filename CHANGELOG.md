@@ -1,5 +1,11 @@
 # Haus NVR changelog
 
+## 0.3.10
+
+- Replay cached SPS/PPS and IDR slices at the same picture timestamp. Old parameter-set timestamps must not create a long synthetic gap before a late viewer’s first frame.
+- Publish H264 readiness only after a complete bounded keyframe cache and both parameter sets are available, rather than on an orphan IDR tail. Preserve copied video/audio payloads and the existing fresh-keyframe gate.
+- Extend the native regression with parameter sets nearly twenty seconds older than the picture and premature-readiness rejection. All 70 native-enabled tests pass locally; physical first-open acceptance remains separate.
+
 ## 0.3.9
 
 - Cache every slice of an H264 IDR picture until the access-unit marker, and extract individual SPS/PPS NAL units from STAP-A packets for valid RTSP descriptions and clean first frames.
