@@ -543,11 +543,6 @@ void RTSPServer::handle_rtsp_request(int client_fd, const std::string& req, RTSP
         session.has_last_in_video_ts = false;
         session.current_frame_video_ts = session.out_base_video_ts;
         session.last_audio_out_ts = session.out_base_audio_ts;
-        {
-            std::lock_guard<std::mutex> lock(clients_mutex_);
-            clients_[client_fd] = session;
-        }
-
         std::string content_base = url.empty() ? ("rtsp://0.0.0.0:" + std::to_string(port_) + "/" + path_ + "/")
                                                : (url.back() == '/' ? url : (url + "/"));
 
@@ -558,9 +553,6 @@ void RTSPServer::handle_rtsp_request(int client_fd, const std::string& req, RTSP
              << "RTP-Info: url=" << content_base << "track0;seq=0;rtptime=" << session.out_base_video_ts
              << ",url=" << content_base << "track1;seq=0;rtptime=" << session.out_base_audio_ts << "\r\n\r\n";
 
-        std::string resp_str = resp.str();
-        send(client_fd, resp_str.data(), resp_str.length(), 0);
-
         // Prime late RTSP clients from the last complete parameter-set + IDR cache.
         // This avoids waiting for the camera's next GOP before VLC/Scrypted can decode.
         std::vector<std::vector<uint8_t>> cached_idr;
@@ -568,17 +560,28 @@ void RTSPServer::handle_rtsp_request(int client_fd, const std::string& req, RTSP
             std::lock_guard<std::mutex> cache_lock(idr_cache_mutex_);
             cached_idr = idr_cache_pkts_;
         }
-        if (!cached_idr.empty()) {
+        {
+            // Response, initial still and live activation form one cutover.
+            // Ingest must not write RTP before the PLAY response or insert a
+            // newer frame between the cached still and the fresh-IDR gate.
             std::lock_guard<std::mutex> clients_lock(clients_mutex_);
-            auto it = clients_.find(client_fd);
-            if (it != clients_.end() && it->second.is_playing) {
+            const std::string resp_str = resp.str();
+            if (send(client_fd, resp_str.data(), resp_str.length(), MSG_NOSIGNAL) !=
+                static_cast<ssize_t>(resp_str.length())) {
+                shutdown(client_fd, SHUT_RDWR);
+                return;
+            }
+            auto& active = clients_[client_fd];
+            active = session;
+            if (!cached_idr.empty()) {
                 for (const auto& packet : cached_idr) {
-                    send_client_rtp_packet(client_fd, it->second, true, packet.data(), packet.size());
+                    send_client_rtp_packet(client_fd, active, true, packet.data(), packet.size());
                 }
                 // This cached still is immediately decodable, but the next
                 // live P-frame may depend on pictures before PLAY. Resume only
                 // at a new IDR rather than attach the decoder in mid-GOP.
-                it->second.wait_idr_started = false;
+                active.wait_idr = true;
+                active.wait_idr_started = false;
             }
         }
 
