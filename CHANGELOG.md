@@ -1,5 +1,11 @@
 # Haus NVR changelog
 
+## 0.3.12
+
+- Anchor each pre-event reader's media clock once instead of treating every segment's close mtime as its media time. Disk/TCP write jitter must not fabricate gaps and reject otherwise complete audio/video recordings. Keep actual media gaps and independently anchored reader restarts visible.
+- Release a failed finalization's disk reservation after its work directory is cleaned, and emit a bounded stage/reason diagnostic without source addresses or media data.
+- Reproduce the former false rejection with actual FFmpeg audio/video segments and 800-ms file-write jitter. Require that the same recording succeeds while a truly missing interior segment still fails and never affects an earlier saved original. Verify stable mapping across polls and independent reader restart clocks.
+
 ## 0.3.11
 
 - Preserve the browser's RTP sequence and media clocks when a local FFmpeg viewer reader reconnects with new random RTP origins. Keep source packet gaps/reordering intact and forward encoded payloads unchanged; the existing WebRTC/SRTP session can resume instead of remaining connected with a frozen picture.
