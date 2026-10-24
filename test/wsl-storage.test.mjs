@@ -50,6 +50,8 @@ test("WSL resolves only its exact distribution/VHD and hosting volume with bound
   );
   assert.match(script, /GetValue\('DistributionName'\) -ceq \$name/);
   assert.match(script, /Get-Volume -FilePath \$file/);
+  assert.match(script, /\$base\.StartsWith/);
+  assert.doesNotMatch(script, /-replace/);
   assert.match(script, /Test-Path -LiteralPath \$file -PathType Leaf/);
   assert.doesNotMatch(script, /Set-|Remove-|Resize-|Invoke-|Format-/);
   assert.ok(!JSON.stringify(value).includes("BasePath"));
