@@ -111,6 +111,10 @@ test("Ubuntu disk purposes follow actual GPT/filesystem/mount metadata and retai
   const volume = disks.find((d) => d.mountpoint === "/mnt/nvr");
   assert.equal(volume.device, "/dev/sdc2");
   assert.deepEqual(volume.mountpoints, ["/export/NVR", "/mnt/nvr"]);
+  assert.equal(
+    disks.filter((d) => d.device === "/dev/sdc2" && d.type === "volume").length,
+    1,
+  );
   assert.equal(volume.partitionRole, "data");
   const clean = sanitizeHostReport({
     sampledAt: new Date().toISOString(),
@@ -173,7 +177,7 @@ test("Linux storage layers preserve disk/partition/encryption/LVM parents withou
   ]);
   assert.deepEqual(
     disks.map((disk) => disk.type),
-    ["disk", "partition", "container", "container", "volume", "volume"],
+    ["disk", "partition", "container", "container", "volume"],
   );
   assert.equal(disks.filter((disk) => disk.kind === "disk").length, 1);
   assert.equal(disks.filter((disk) => disk.physical === true).length, 1);
@@ -185,11 +189,11 @@ test("Linux storage layers preserve disk/partition/encryption/LVM parents withou
       "block:nvme0n1p3",
       "block:cryptroot",
       "block:vg-root",
-      "block:vg-root",
     ],
   );
   assert.equal(disks[4].mountpoint, "/");
   assert.equal(disks[4].availableBytes, 350);
+  assert.deepEqual(disks[4].mountpoints, ["/", "/export/Home"]);
   assert.equal(disks[1].usedBytes, null);
 });
 
