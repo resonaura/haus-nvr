@@ -8,6 +8,7 @@ import {
   writeFile,
   stat,
   utimes,
+  truncate,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -418,6 +419,150 @@ test("stream-copy ring tolerates file-write jitter but rejects real missing foot
   );
   await ring.stop();
   assert.equal(reservations.length, 0);
+});
+
+test("three short captures share a bounded disk budget instead of reserving a GiB each", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "haus-ring-budget-"));
+  const rings = [];
+  let reserved = 0,
+    peak = 0;
+  const limit = 320 * 1024 ** 2;
+  const reserve = async (bytes) => {
+    if (reserved + bytes > limit) throw Error("storage_full");
+    reserved += bytes;
+    peak = Math.max(peak, reserved);
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        reserved -= bytes;
+      }
+    };
+  };
+  t.after(async () => {
+    await Promise.all(rings.map((r) => r.stop()));
+    await rm(root, { recursive: true, force: true });
+  });
+  for (let i = 0; i < 3; i++) {
+    const dir = join(root, String(i));
+    await mkdir(dir);
+    const ring = new CameraRing(dir, "rtsp://127.0.0.1/fixture", {
+      reserve,
+      now: () => 100000,
+      probe: async () => ({ video: true, audio: true, duration: 2 }),
+      spawnProcess: () => {
+        const child = new EventEmitter();
+        child.exitCode = null;
+        child.kill = () => {
+          child.exitCode = 0;
+          queueMicrotask(() => child.emit("close", 0));
+        };
+        return child;
+      },
+    });
+    rings.push(ring);
+    await ring.start();
+    await writeFile(join(dir, "000000000.ts"), "encoded-fixture");
+    await utimes(join(dir, "000000000.ts"), 100, 100);
+    await writeFile(join(dir, "segments.csv"), "000000000.ts,0,2\n");
+    await ring.sample();
+    const job = await ring.record({
+      eventId: randomUUID(),
+      startAt: 98000,
+      endAt: 102000,
+    });
+    assert.equal(job.state, "recording");
+    assert.equal(ring.jobs.get(job.id).bytes, 15);
+  }
+  assert.ok(peak <= limit);
+  await Promise.all(rings.map((r) => r.stop()));
+  assert.equal(reserved, 0);
+});
+
+test("capture grows its reservation before copying and releases partial files if growth is refused", async (t) => {
+  for (const denied of [false, true])
+    await t.test(denied ? "exhausted" : "growing", async (t) => {
+      const root = await mkdtemp(join(tmpdir(), "haus-ring-growth-"));
+      let reserved = 0;
+      const limit = (denied ? 96 : 128) * 1024 ** 2;
+      const diagnostics = [];
+      const ring = new CameraRing(root, "rtsp://127.0.0.1/fixture", {
+        now: () => 100000,
+        probe: async () => ({ video: true, audio: true, duration: 2 }),
+        log: (event, fields) => diagnostics.push({ event, ...fields }),
+        reserve: async (bytes) => {
+          if (reserved + bytes > limit) throw Error("storage_full");
+          reserved += bytes;
+          let released = false;
+          return () => {
+            if (!released) {
+              released = true;
+              reserved -= bytes;
+            }
+          };
+        },
+        spawnProcess: () => {
+          const child = new EventEmitter();
+          child.exitCode = null;
+          child.kill = () => {
+            child.exitCode = 0;
+            queueMicrotask(() => child.emit("close", 0));
+          };
+          return child;
+        },
+      });
+      t.after(async () => {
+        await ring.stop();
+        await rm(root, { recursive: true, force: true });
+      });
+      await ring.start();
+      const saved = join(root, "prior-saved.mp4");
+      await writeFile(saved, "completed original");
+      for (let i = 0; i < 2; i++) {
+        const file = join(root, String(i).padStart(9, "0") + ".ts");
+        await writeFile(file, "encoded");
+        await truncate(file, 12 * 1024 ** 2);
+        await utimes(file, 98 + i * 2, 98 + i * 2);
+      }
+      await writeFile(
+        join(root, "segments.csv"),
+        "000000000.ts,0,2\n000000001.ts,2,4\n",
+      );
+      await ring.sample();
+      const id = randomUUID();
+      const result = await ring.record({
+        eventId: id,
+        startAt: 96000,
+        endAt: 102000,
+      });
+      if (denied) {
+        assert.equal(result.state, "failed");
+        assert.equal(reserved, 64 * 1024 ** 2);
+        await assert.rejects(stat(ring.jobs.get(id).root), { code: "ENOENT" });
+        assert.deepEqual(diagnostics, [
+          {
+            event: "recording_finalization_failed",
+            eventId: id,
+            stage: "capture",
+            reason: "storage_full",
+            parts: 1,
+          },
+        ]);
+      } else {
+        assert.equal(result.state, "recording");
+        assert.equal(reserved, limit);
+        assert.equal(ring.jobs.get(id).bytes, 24 * 1024 ** 2);
+        assert.equal(
+          (await stat(join(ring.jobs.get(id).root, "000000001.ts"))).size,
+          12 * 1024 ** 2,
+        );
+        await ring.removeRecording(id);
+        assert.equal(reserved, 64 * 1024 ** 2);
+      }
+      assert.equal(await readFile(saved, "utf8"), "completed original");
+      await ring.stop();
+      assert.equal(reserved, 0);
+    });
 });
 
 test("ring media clocks stay fixed across samples and restart independently", async (t) => {
