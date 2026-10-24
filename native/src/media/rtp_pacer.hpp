@@ -10,12 +10,15 @@ namespace tuya {
 
 // Copying one encoded frame must not flood the browser's UDP receive queue.
 // Spread its packets without changing payloads, RTP clocks or camera quality.
-// The floor is well above ordinary source bitrate; higher-bitrate sources
-// increase the budget from their media clock instead of growing a stale queue.
+// The floor must carry a detailed 800-KiB IDR inside the receiver's short
+// playout window even when average bitrate is low. A 12-Mbit floor spreads
+// that one picture over half a second and makes Chromium discard dependent
+// frames without any packet loss. Keep a bounded sender gate; higher-bitrate
+// sources increase the budget from their media clock rather than queueing.
 class RtpPacer {
 public:
     explicit RtpPacer(bool video)
-        : minimum_bps_(video ? 12000000 : 256000),
+        : minimum_bps_(video ? 64000000 : 256000),
           clock_rate_(video ? 90000 : 48000),
           bits_per_second_(minimum_bps_) {}
 

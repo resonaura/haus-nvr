@@ -1,5 +1,11 @@
 # Haus NVR changelog
 
+## 0.3.14
+
+- Give large H264 keyframes enough paced burst capacity to reach WebRTC before its decoder's playout deadline. The previous low average-bitrate floor spread an 800-KiB picture across more than half a second, producing freezes and discarded dependent frames even with zero packet loss.
+- Retain the bounded sender gate, media timestamps, encoded quality, audio pacing, adaptive upper cap and RTP buffering/NACK protections.
+- Reproduce the failure with generated 2688×1520 multi-slice H264 and AAC: the same 20-second input previously decoded 131 frames with nine freezes / 12.227 seconds; the candidate decodes 405 frames with zero freezes/loss. Physical camera continuity remains a separate acceptance check.
+
 ## 0.3.13
 
 - Grow a capture's temporary disk reservation in 16-MiB increments before copying encoded segments, instead of reserving 1 GiB for every short event. Reserve both segment copies and the output MP4, retain the 512-MiB per-file limit, and cap remux output to its admitted capacity.
