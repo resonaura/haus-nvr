@@ -1,5 +1,11 @@
 # Haus NVR changelog
 
+## 0.3.15
+
+- Let the optional host collector read native Windows disk/partition/volume relationships through fixed, read-only CIM selectors, including from WSL. Keep measured volume use and shared parents without duplicating storage capacity or treating sparse WSL devices as physical hardware.
+- Preserve the Linux/WSL resource scope and expose its root filesystem separately. If Windows interoperability is absent, retain the existing truthful Linux fallback. After a successful native disk view, a short CIM interruption retains the last sample with its original freshness deadline.
+- Bound CIM runtime/output, omit serial numbers and credentials, and keep collection outside the media request path. Existing worker resource limits, camera transport and storage policy are unchanged.
+
 ## 0.3.14
 
 - Give large H264 keyframes enough paced burst capacity to reach WebRTC before its decoder's playout deadline. The previous low average-bitrate floor spread an 800-KiB picture across more than half a second, producing freezes and discarded dependent frames even with zero packet loss.
