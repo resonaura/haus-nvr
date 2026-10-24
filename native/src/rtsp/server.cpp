@@ -574,6 +574,18 @@ void RTSPServer::handle_rtsp_request(int client_fd, const std::string& req, RTSP
             auto& active = clients_[client_fd];
             active = session;
             if (!cached_idr.empty()) {
+                // Parameter sets may have been received many GOPs earlier.
+                // Replaying their old RTP times makes probing see a long gap
+                // before its first picture. This cache is one access unit: all
+                // its packets must carry that picture's sampling timestamp.
+                const auto& picture = cached_idr.back();
+                if (picture.size() >= 12) {
+                    const uint8_t timestamp[] = {picture[4], picture[5], picture[6], picture[7]};
+                    for (auto& packet : cached_idr) {
+                        if (packet.size() >= 12)
+                            std::copy(timestamp, timestamp + 4, packet.begin() + 4);
+                    }
+                }
                 for (const auto& packet : cached_idr) {
                     send_client_rtp_packet(client_fd, active, true, packet.data(), packet.size());
                 }
@@ -996,8 +1008,6 @@ void RTSPServer::feed_raw_rtp(const uint8_t* data, size_t len, bool is_video) {
         // A FU end terminates one slice. Only the RTP marker completes the
         // access unit; high-resolution cameras can encode several IDR slices.
         const bool is_idr_end = is_idr_packet && (data[1] & 0x80);
-        if (is_idr_end)
-            notify_media_ready(true, false);
         const bool is_parameter_packet = is_sps || is_pps;
 
         {
@@ -1007,6 +1017,7 @@ void RTSPServer::feed_raw_rtp(const uint8_t* data, size_t len, bool is_video) {
             if (!parameter_pps.empty())
                 pps_pkt_ = std::move(parameter_pps);
         }
+        bool cached_picture_ready = false;
         const uint32_t timestamp = (uint32_t(data[4]) << 24) | (uint32_t(data[5]) << 16) |
                                    (uint32_t(data[6]) << 8) | data[7];
         if (collecting_idr_ && timestamp != current_idr_timestamp_) {
@@ -1036,7 +1047,20 @@ void RTSPServer::feed_raw_rtp(const uint8_t* data, size_t len, bool is_video) {
                 collecting_idr_ = false;
                 std::lock_guard<std::mutex> lock(idr_cache_mutex_);
                 idr_cache_pkts_ = current_idr_pkts_;
+                cached_picture_ready = true;
             }
+        }
+
+        // Publish readiness only after the completed cache and its parameter
+        // sets are visible to a newly opened RTSP client.
+        if (cached_picture_ready) {
+            bool parameters_ready;
+            {
+                std::lock_guard<std::mutex> lock(param_mutex_);
+                parameters_ready = sps_pkt_.size() >= 16 && pps_pkt_.size() >= 14;
+            }
+            if (parameters_ready)
+                notify_media_ready(true, false);
         }
 
         std::lock_guard<std::mutex> lock(clients_mutex_);
