@@ -1,5 +1,11 @@
 # Haus NVR changelog
 
+## 0.3.18
+
+- Report the actual Windows host OS caption/version/build and all native display adapters separately from the WSL CPU/memory/process scope. Preserve a real Windows OS name for older clients while adding structured hardware metadata.
+- Inventory every Linux PCI display-class function, including multiple integrated/discrete adapters, without guessing topology or VRAM from names. Do not expose serial numbers or the unreliable 32-bit Windows AdapterRAM value.
+- Cache the bounded, read-only hardware inventory for one minute outside the media worker and viewer path. Missing permissions or optional tools remain unavailable and do not affect recording or physical-disk admission.
+
 ## 0.3.17
 
 - Identify actual connection/media types from Linux block/udev metadata and native Windows Storage properties. Distinguish USB HDDs, explicitly reported SSDs or flash drives, SD/MMC and unknown solid-state USB without guessing from names. Export only allowlisted metadata and rebuild each sample for hot removal/reconnect.
