@@ -278,6 +278,7 @@ test("WSL release does not become Windows native telemetry or physical host disk
   assert.deepEqual(commands, [
     "lsblk",
     "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+    "/usr/bin/wslpath",
   ]);
   telemetry.stop();
 });
@@ -317,6 +318,7 @@ test("WSL collector uses real Windows disk relationships but retains Linux scope
           ],
         });
       if (failed) throw Error("CIM temporarily unavailable");
+      if (file === "/usr/bin/wslpath") throw Error("Interop root unavailable");
       assert.equal(
         file,
         "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",

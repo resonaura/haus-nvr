@@ -48,7 +48,11 @@ node lib/host-collector.mjs --output /path/to/haus-telemetry/host.json --once
 
 The collector uses Node OS counters, Linux `/proc` and `lsblk`, macOS `vm_stat`/`sysctl`/`diskutil`, or Windows read-only CIM queries. Host-scoped Linux samples include only the distribution ID and `PRETTY_NAME` from `/etc/os-release`, parsed as data and never evaluated as shell syntax. Linux/macOS/Windows include disk/partition/volume parents. APFS volume usage comes from its own allocation rather than repeating the entire container's used space. No process arguments, environments, labels, ports, Docker mounts, serial numbers, logs or command output appear in reports. PM2 metadata is reduced to an explicit status whitelist before writing. It does not start a stopped PM2 daemon.
 
-On WSL, Windows PowerShell interoperability supplies the native Windows disk tree through `Win32_DiskDriveToDiskPartition` and `Win32_LogicalDiskToPartition`. Its capacities and volume usage are Windows measurements; the CPU/RAM/OS sample remains Linux/WSL and is never relabeled as native Windows telemetry. The WSL root filesystem appears separately with its logical capacity. Without interoperability/permissions, the collector retains Linux disk reporting. A transient failure after a native sample preserves the previous whole sample and timestamp, which expires normally after 30 seconds. This display does not map a WSL image to its backing Windows volume or change media admission/quota calculations.
+On WSL, Windows PowerShell interoperability supplies the native Windows disk tree through `Win32_DiskDriveToDiskPartition` and `Win32_LogicalDiskToPartition`. Its capacities and volume usage are Windows measurements; the CPU/RAM/OS sample remains Linux/WSL and is never relabeled as native Windows telemetry. The WSL root filesystem appears separately with its logical capacity. Without interoperability/permissions, the collector retains Linux disk reporting. A transient failure after a native sample preserves the previous whole sample and timestamp, which expires normally after 30 seconds.
+
+Version 0.3.16 additionally matches the exact running distribution from `wslpath`, its registered VHD file and its hosting Windows volume using read-only registry/volume queries. Only the distribution's filesystem device number and measured hosting-volume capacity are exported; the private image path and registry data are omitted. The worker matches this device number against its mounted data directory. New uploads and transient reservations use the lesser of Linux filesystem and Windows backing free space, then subtract the existing reserve/reservations. Committed writes remain debited until a newer native sample accounts for them. User quotas remain unchanged; Unlimited remains a policy choice, not a promise of unlimited physical capacity.
+
+Install the updated host collector before upgrading a WSL worker with `HAUS_HOST_TELEMETRY_FILE` configured: those installations require a verified post-start backing sample for new growth. Missing, stale, regressed or mismatched mapping reports zero allocatable backing capacity, while original reads and verification remain available. A separate data mount not belonging to the discovered distribution is not silently mapped to C:. It needs its own verified backing mapping before this guarded WSL configuration admits growth. Ordinary Linux/macOS/native-Windows workers do not gain a WSL requirement.
 
 Docker status needs the host operator's existing Docker permission. Do not add the worker to the Docker group, mount `/var/run/docker.sock` into it, or expose an unauthenticated Docker API. Docker and PM2 failures are reported as unavailable; ordinary recording continues. The collector does not start, stop or restart host applications.
 
@@ -71,6 +75,8 @@ host: {
   scope: "host" | "container",
   hostname, platform, distribution?, osName?, release, arch,
   uptimeSeconds, battery?: { level: 0..100 | null, charging: boolean | null } | null,
+  storageBacking?: { source: "wsl-vhd", device: number, sampledAt: ISO date,
+                     totalBytes, availableBytes, volume: "C:" | "Windows volume" },
   cpu: {model, logicalCores, usage: 0..1 | null, loadAverage: number[]},
   memory: {totalBytes, availableBytes, usedBytes},
   swap: {supported, totalBytes: number | null, usedBytes: number | null},
