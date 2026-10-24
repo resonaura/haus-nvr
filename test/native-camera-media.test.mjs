@@ -27,6 +27,72 @@ class FakeChild extends EventEmitter {
 
 const emit = (child, value) => child.stdout.write(`${JSON.stringify(value)}\n`);
 
+test("RTP diagnostics retain bounded counters without native payloads or source details", () => {
+  const logs = [];
+  const engine = new NativeCameraMedia("/unused", {
+    log: (event, fields) => logs.push({ event, ...fields }),
+  });
+  const id = randomUUID();
+  engine.sessions.set(id, { cameraId: "camera.fixture" });
+  engine.onEvent({
+    event: "rtp_stats",
+    did: id,
+    viewer_id: "private-source",
+    stage: "source",
+    media: "video",
+    packets: 5000,
+    bytes: 900000,
+    sequence_gaps: 3,
+    kernel_drops: 3,
+    truncated: 0,
+    receive_buffer_bytes: 8388608,
+    source: "rtsp://secret@192.168.1.1/private",
+    sdp: "private-sdp",
+  });
+  assert.deepEqual(logs, [
+    {
+      event: "rtp_ingress_stats",
+      cameraId: "camera.fixture",
+      stage: "source",
+      media: "video",
+      packets: 5000,
+      bytes: 900000,
+      sequence_gaps: 3,
+      kernel_drops: 3,
+      truncated: 0,
+      receive_buffer_bytes: 8388608,
+    },
+  ]);
+  engine.onEvent({
+    event: "rtp_stats",
+    did: id,
+    stage: "source",
+    media: "audio",
+    packets: -1,
+    bytes: Infinity,
+    kernel_drops: "secret",
+  });
+  assert.deepEqual(logs[1], {
+    event: "rtp_ingress_stats",
+    cameraId: "camera.fixture",
+    stage: "source",
+    media: "audio",
+  });
+  engine.onEvent({
+    event: "rtp_stats",
+    did: randomUUID(),
+    stage: "source",
+    media: "video",
+  });
+  engine.onEvent({
+    event: "rtp_stats",
+    did: id,
+    stage: "private-source",
+    media: "video",
+  });
+  assert.equal(logs.length, 2);
+});
+
 test("native RTSP producer stays warm while a browser viewer starts and closes", async (t) => {
   const nativeCommands = [],
     ffmpeg = [],

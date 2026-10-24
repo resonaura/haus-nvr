@@ -1,4 +1,5 @@
 #include "server.hpp"
+#include "interleaved-writer.hpp"
 #include <iostream>
 #include <sstream>
 #include <cstring>
@@ -35,6 +36,10 @@ void RTSPServer::set_snapshot_callback(std::function<void(const std::vector<uint
 void RTSPServer::set_media_ready_callback(std::function<void()> cb) {
     std::lock_guard<std::mutex> lock(snap_mutex_);
     media_ready_cb_ = std::move(cb);
+}
+
+void RTSPServer::set_ingest_stats_callback(std::function<void(bool, const RtpIngressStats&)> cb) {
+    ingest_stats_cb_ = std::move(cb);
 }
 
 void RTSPServer::notify_media_ready(bool video, bool audio) {
@@ -231,22 +236,31 @@ bool RTSPServer::start_udp_ingest(int video_port, int audio_port) {
 
 void RTSPServer::udp_ingest_loop(int socket_fd, bool is_video) {
     std::array<uint8_t, 2048> packet{};
+    RtpIngress ingress(socket_fd, is_video);
     while (running_) {
-        const ssize_t len = recv(socket_fd, packet.data(), packet.size(), 0);
+        const ssize_t len = ingress.receive(socket_fd, packet.data(), packet.size());
         if (len <= 0) {
             if (running_)
                 usleep(1000);
             continue;
         }
+        if (is_video && ingress.gap)
+            notify_video_discontinuity();
         feed_raw_rtp(packet.data(), static_cast<size_t>(len), is_video);
+        if (ingest_stats_cb_ && ingress.report_due())
+            ingest_stats_cb_(is_video, ingress.stats);
     }
+    if (ingest_stats_cb_ && ingress.stats.packets)
+        ingest_stats_cb_(is_video, ingress.stats);
 }
 
 void RTSPServer::notify_video_discontinuity() {
     {
         std::lock_guard<std::mutex> lock(clients_mutex_);
-        for (auto& entry : clients_)
+        for (auto& entry : clients_) {
             entry.second.wait_idr = true;
+            entry.second.wait_idr_started = false;
+        }
     }
     {
         std::lock_guard<std::mutex> lock(idr_cache_mutex_);
@@ -324,6 +338,11 @@ void RTSPServer::accept_loop() {
         setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
         int sndbuf = 256 * 1024;
         setsockopt(client_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+        // MSG_DONTWAIT is used for media writes. Also bound a single write on
+        // platforms that can still wait for socket space despite that flag.
+        timeval send_timeout{};
+        send_timeout.tv_usec = 10000;
+        setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout));
 
         std::lock_guard<std::mutex> lock(client_threads_mutex_);
         client_threads_.emplace_back([this, client_fd]() { client_loop(client_fd); });
@@ -556,7 +575,10 @@ void RTSPServer::handle_rtsp_request(int client_fd, const std::string& req, RTSP
                 for (const auto& packet : cached_idr) {
                     send_client_rtp_packet(client_fd, it->second, true, packet.data(), packet.size());
                 }
-                it->second.wait_idr = false;
+                // This cached still is immediately decodable, but the next
+                // live P-frame may depend on pictures before PLAY. Resume only
+                // at a new IDR rather than attach the decoder in mid-GOP.
+                it->second.wait_idr_started = false;
             }
         }
 
@@ -575,19 +597,11 @@ void RTSPServer::handle_rtsp_request(int client_fd, const std::string& req, RTSP
 }
 
 void RTSPServer::send_interleaved_packet(int fd, uint8_t channel, const uint8_t* rtp_data, size_t len) {
-    if (fd < 0 || !rtp_data || len == 0)
-        return;
-    const uint8_t header[4] = {'$', channel, static_cast<uint8_t>((len >> 8) & 0xFF), static_cast<uint8_t>(len & 0xFF)};
-    struct iovec iov[2];
-    iov[0].iov_base = const_cast<uint8_t*>(header);
-    iov[0].iov_len = 4;
-    iov[1].iov_base = const_cast<uint8_t*>(rtp_data);
-    iov[1].iov_len = len;
-
-    struct msghdr msg {};
-    msg.msg_iov = iov;
-    msg.msg_iovlen = 2;
-    sendmsg(fd, &msg, MSG_NOSIGNAL);
+    if (!write_interleaved_packet(fd, channel, rtp_data, len)) {
+        // Once a packet is only partly written, continuing would corrupt the
+        // TCP framing. Wake the client reader and let it reconnect cleanly.
+        shutdown(fd, SHUT_RDWR);
+    }
 }
 
 void RTSPServer::send_client_rtp_packet(int fd, RTSPClientSession& session, bool is_video, const uint8_t* data,
@@ -617,27 +631,47 @@ void RTSPServer::send_client_rtp_packet(int fd, RTSPClientSession& session, bool
         out_seq = session.out_video_seq++;
 
         // All RTP packets belonging to the same video frame share the exact same timestamp (RFC 6184)
-        if (!session.has_last_in_video_ts || in_ts != session.last_in_video_ts) {
+        if (!session.has_last_in_video_ts) {
             session.has_last_in_video_ts = true;
             session.last_in_video_ts = in_ts;
-
-            uint32_t calc_ts = session.out_base_video_ts + static_cast<uint32_t>(elapsed_ms * 90);
-            if (calc_ts <= session.current_frame_video_ts) {
-                calc_ts = session.current_frame_video_ts + 1;
+            session.current_frame_video_ts = session.out_base_video_ts + static_cast<uint32_t>(elapsed_ms * 90);
+        } else if (in_ts != session.last_in_video_ts) {
+            const int32_t delta = static_cast<int32_t>(in_ts - session.last_in_video_ts);
+            // Preserve the media clock even when TCP/UDP delivers several
+            // frames in one scheduler slice. Arrival time collapses a burst to
+            // +1 ticks, which causes non-monotonic DTS and playback stalls.
+            if (delta > -30 * 90000 && delta < 30 * 90000) {
+                session.current_frame_video_ts += delta;
+            } else {
+                // A restarted publisher may choose a new random RTP origin.
+                uint32_t calc_ts = session.out_base_video_ts + static_cast<uint32_t>(elapsed_ms * 90);
+                if (static_cast<int32_t>(calc_ts - session.current_frame_video_ts) <= 0)
+                    calc_ts = session.current_frame_video_ts + 1;
+                session.current_frame_video_ts = calc_ts;
             }
-            session.current_frame_video_ts = calc_ts;
+            session.last_in_video_ts = in_ts;
         }
         out_ts = session.current_frame_video_ts;
     } else {
         out_seq = session.out_audio_seq++;
 
         if (audio_is_aac_) {
-            uint32_t calc_ts = session.out_base_audio_ts + static_cast<uint32_t>(elapsed_ms * 16);
-            if (calc_ts <= session.last_audio_out_ts) {
-                calc_ts = session.last_audio_out_ts + 1;
+            if (!session.has_audio_base_ts) {
+                session.has_audio_base_ts = true;
+                session.last_audio_out_ts = session.out_base_audio_ts + static_cast<uint32_t>(elapsed_ms * 16);
+            } else {
+                const uint32_t delta = in_ts - session.last_in_audio_ts;
+                if (delta < 30 * 16000) {
+                    session.last_audio_out_ts += delta;
+                } else {
+                    uint32_t calc_ts = session.out_base_audio_ts + static_cast<uint32_t>(elapsed_ms * 16);
+                    if (static_cast<int32_t>(calc_ts - session.last_audio_out_ts) <= 0)
+                        calc_ts = session.last_audio_out_ts + 1;
+                    session.last_audio_out_ts = calc_ts;
+                }
             }
-            session.last_audio_out_ts = calc_ts;
-            out_ts = calc_ts;
+            session.last_in_audio_ts = in_ts;
+            out_ts = session.last_audio_out_ts;
         } else {
             // Anchor outbound PCMU timestamps to incoming camera RTP timestamp to guarantee
             // exact jitter-free pacing and avoid synthetic discontinuities / clicks.
@@ -979,9 +1013,11 @@ void RTSPServer::feed_raw_rtp(const uint8_t* data, size_t len, bool is_video) {
             if (!session.is_playing)
                 continue;
             if (session.wait_idr) {
-                if (is_parameter_packet || is_idr_packet) {
+                if (is_idr_start)
+                    session.wait_idr_started = true;
+                if (is_parameter_packet || (is_idr_packet && session.wait_idr_started)) {
                     send_client_rtp_packet(fd, session, true, data, len);
-                    if (is_idr_end)
+                    if (is_idr_end && session.wait_idr_started)
                         session.wait_idr = false;
                 }
                 continue;
@@ -1104,6 +1140,10 @@ static constexpr size_t kSilenceSamples = 160;
 static constexpr int64_t kSilenceThresholdMs = 400;
 
 void RTSPServer::silence_loop() {
+    // This generator is PCMU/8 kHz only. An AAC/16 kHz relay must never emit
+    // unadvertised PCMU packets while its first real audio frame is pending.
+    if (audio_is_aac_)
+        return;
     // Pre-build the fixed-size PCMU silence RTP packet payload (no header yet)
     // Header is filled per-client below using the client's unified session seq & ts.
     static constexpr size_t kPktSize = 12 + kSilenceSamples;

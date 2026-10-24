@@ -112,6 +112,20 @@ struct EventViewerState {
     std::string state;
 };
 
+struct EventRtpStats {
+    std::string event = "rtp_stats";
+    std::string did;
+    std::string viewer_id;
+    std::string stage;
+    std::string media;
+    uint64_t packets = 0;
+    uint64_t bytes = 0;
+    uint64_t sequence_gaps = 0;
+    uint64_t kernel_drops = 0;
+    uint64_t truncated = 0;
+    int receive_buffer_bytes = 0;
+};
+
 struct EventError {
     std::string event = "error";
     std::string did;

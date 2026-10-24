@@ -9,6 +9,7 @@
 #include <regex>
 #include <unistd.h>
 #include "ipc/events.hpp"
+#include "media/rtp_ingress.hpp"
 
 namespace tuya {
 
@@ -55,8 +56,6 @@ bool BrowserPeer::start(const std::string& remote_offer) {
             return false;
         }
         port = ntohs(addr.sin_port);
-        int recv_buffer = 2 * 1024 * 1024;
-        setsockopt(socket_fd, SOL_SOCKET, SO_RCVBUF, &recv_buffer, sizeof(recv_buffer));
         return true;
     };
 
@@ -188,6 +187,9 @@ bool BrowserPeer::start(const std::string& remote_offer) {
         video.addH264Codec(video_pt_, "packetization-mode=1;profile-level-id=42001f;level-asymmetry-allowed=1");
         video.addSSRC(ssrc_, "tuya-browser-video");
         video_track_ = pc_->addTrack(video);
+        // A single missing fragment otherwise damages every dependent picture
+        // until the next IDR. Keep a bounded retransmission history for RTCP NACK.
+        video_track_->setMediaHandler(std::make_shared<rtc::RtcpNackResponder>(2048));
         video_track_->onOpen([this]() {
             std::cerr << "[BrowserPeer " << viewer_id_ << "] Video track OPENED (WebRTC streaming active)!"
                       << std::endl;
@@ -199,6 +201,7 @@ bool BrowserPeer::start(const std::string& remote_offer) {
         audio.addOpusCodec(audio_pt_);
         audio.addSSRC(audio_ssrc_, "tuya-browser-audio");
         audio_track_ = pc_->addTrack(audio);
+        audio_track_->setMediaHandler(std::make_shared<rtc::RtcpNackResponder>(512));
         audio_track_->onOpen(
             [this]() { std::cerr << "[BrowserPeer " << viewer_id_ << "] Audio track OPENED!" << std::endl; });
 
@@ -230,9 +233,25 @@ bool BrowserPeer::start(const std::string& remote_offer) {
 }
 
 void BrowserPeer::receive_loop(int socket_fd, bool is_video) {
-    std::array<std::byte, 2048> buffer{};
+    std::array<uint8_t, 2048> buffer{};
+    RtpIngress ingress(socket_fd, is_video);
+    const auto report = [&]() {
+        if (event_cb_)
+            event_cb_(to_json(EventRtpStats{
+                .did = did_,
+                .viewer_id = viewer_id_,
+                .stage = "viewer",
+                .media = is_video ? "video" : "audio",
+                .packets = ingress.stats.packets,
+                .bytes = ingress.stats.bytes,
+                .sequence_gaps = ingress.stats.sequence_gaps,
+                .kernel_drops = ingress.stats.kernel_drops,
+                .truncated = ingress.stats.truncated,
+                .receive_buffer_bytes = ingress.stats.receive_buffer_bytes,
+            }));
+    };
     while (running_) {
-        const auto len = recv(socket_fd, buffer.data(), buffer.size(), 0);
+        const auto len = ingress.receive(socket_fd, buffer.data(), buffer.size());
         if (len <= 0) {
             if (running_)
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -251,10 +270,14 @@ void BrowserPeer::receive_loop(int socket_fd, bool is_video) {
         if (!track || !track->isOpen())
             continue;
         try {
-            track->send(buffer.data(), static_cast<size_t>(len));
+            track->send(reinterpret_cast<const std::byte*>(buffer.data()), static_cast<size_t>(len));
         } catch (...) {
         }
+        if (ingress.report_due())
+            report();
     }
+    if (ingress.stats.packets)
+        report();
 }
 
 void BrowserPeer::stop() {
