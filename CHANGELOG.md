@@ -1,5 +1,11 @@
 # Haus NVR changelog
 
+## 0.3.13
+
+- Grow a capture's temporary disk reservation in 16-MiB increments before copying encoded segments, instead of reserving 1 GiB for every short event. Reserve both segment copies and the output MP4, retain the 512-MiB per-file limit, and cap remux output to its admitted capacity.
+- Reclaim partial capture files and reservations immediately on a capacity/copy failure, with bounded stage/reason diagnostics. Earlier saved originals, the warm producer and the system's free-space reserve remain protected.
+- Reproduce three-camera admission under a 320-MiB shared budget and verify both incremental growth and refused growth. Existing actual-FFmpeg audio/pre-event and missing-footage checks remain in place.
+
 ## 0.3.12
 
 - Anchor each pre-event reader's media clock once instead of treating every segment's close mtime as its media time. Disk/TCP write jitter must not fabricate gaps and reject otherwise complete audio/video recordings. Keep actual media gaps and independently anchored reader restarts visible.
