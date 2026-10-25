@@ -1,3 +1,7 @@
+# 0.3.27
+
+- Report background per-component Haus file usage separately from disk capacity and quota admission. Measure logical size and allocated blocks, count hard links once, avoid following symlinks and report bounded/partial scans honestly. Preserve exact original/prepared catalog references; unclassified blobs remain explicit. No media processing, source, retention or quota changes.
+
 # 0.3.22
 
 - Declare CPU percentage units for each service provider. Query the Docker daemon OS instead of guessing from its client: Linux CLI stats use per-core units, Windows daemon CLI stats use whole-host units. PM2, systemd, native Windows process counters and launchd retain explicit per-core accounting. Preserve unknown units and whitelist the accounting field at the external-report boundary.

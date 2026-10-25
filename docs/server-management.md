@@ -116,3 +116,11 @@ Live resource samples run at one-second cadence; disk/service inventory refreshe
 System service inventory is reported separately from Docker and PM2. Linux uses fixed systemctl properties and CPU counter deltas; Windows uses fixed service/performance CIM properties and counts shared processes once. macOS reports the actual queried launchd domain. Missing counters remain null, and no command lines, account names, environments, or control operations are collected. Inventory remains on its existing bounded background cadence.
 
 Service groups declare cpuPercentBasis as core or host (unknown is null). Linux Docker CLI, PM2 pidusage, systemd CPU deltas, Windows service process counters and macOS ps use core units. Windows Docker daemon CLI stats use host units. Docker discovery queries the daemon OSType; the CLI/collector OS is not evidence for this convention. Raw counters remain intact, allowing clients to normalize exactly once.
+
+## Haus file usage
+
+Authenticated status includes `storage.usage` (version 1). The first request starts a background scan; later requests receive a cached sample. Scans run at most once per 30 seconds, visit at most 100,000 entries and yield between I/O batches with a 3-second work deadline. This does not delay one-second host counters.
+
+Only managed Haus data is inspected, using file metadata, never file contents or followed symbolic links. Categories distinguish confirmed originals/prepared video, backups, pre-event buffers, capture/preparation/stream caches, databases/logs and other measured files. Old recording roles are repaired from the helper's authoritative archive descriptors in bounded metadata-only batches. Missing roles remain Unclassified Media.
+
+`logicalBytes` is unique-inode file size; `allocatedBytes` uses filesystem-reported 512-byte blocks and is null when unavailable. Hard links across categories appear once as Shared Files. Reflinks, compression and snapshots may share physical extents: allocated blocks are not a claim of exclusive hardware consumption. Directory/filesystem metadata, container images and external runtime logs are outside these managed-file totals. `complete: false` marks lower-bound scans after limits, I/O errors or concurrent disappearance. No personal paths, file contents, keys or blob identifiers appear in the usage response.
