@@ -74,7 +74,9 @@ test("Windows and WSL use native read-only service queries; unsupported managers
     now: () => 1000,
     run: async (file, args) => {
       calls.push({ file, args });
-      return '{"Services":[],"Processes":[]}';
+      return file === "systemctl"
+        ? unit(100000000)
+        : '{"Services":[],"Processes":[]}';
     },
   });
   assert.equal(
@@ -83,7 +85,7 @@ test("Windows and WSL use native read-only service queries; unsupported managers
   );
   assert.equal(
     (await sampler.collect({ platform: "linux", wsl: true })).source,
-    "windows",
+    "windows-wsl",
   );
   assert.equal(calls[0].file, "powershell.exe");
   assert.ok(calls[1].file.startsWith("/mnt/c/"));
@@ -150,4 +152,68 @@ test("the external-report boundary preserves only allowlisted system service fie
   assert.equal(value.systemServices.services[0].sharedProcess, true);
   assert.equal(value.systemServices.cpuPercent, 2);
   assert.ok(!JSON.stringify(value).includes("secret"));
+});
+
+test("WSL includes both managers with distinct identities and independent failures", async () => {
+  let nativeFails = false,
+    systemdFails = false,
+    at = 1000;
+  const sampler = new SystemServiceTelemetry({
+    now: () => at,
+    run: async (file) => {
+      if (file === "systemctl") {
+        if (systemdFails) throw Error("systemd unavailable");
+        return unit(at * 1000);
+      }
+      if (nativeFails) throw Error("CIM unavailable");
+      return JSON.stringify({
+        Services: [
+          { Name: "fixture.service", State: "Running", ProcessId: 20 },
+        ],
+        Processes: [
+          { IDProcess: 20, PercentProcessorTime: 3, WorkingSetPrivate: 1024 },
+        ],
+      });
+    },
+  });
+  const first = await sampler.collect({ platform: "linux", wsl: true });
+  assert.equal(first.source, "windows-wsl");
+  assert.deepEqual(
+    first.services.map((row) => [row.id, row.domain]),
+    [
+      ["windows:fixture.service", "windows"],
+      ["wsl:fixture.service", "wsl"],
+    ],
+  );
+  at += 1000;
+  const next = await sampler.collect({ platform: "linux", wsl: true });
+  assert.equal(next.cpuPercent, 3.1);
+  assert.equal(next.memoryBytes, 1049600);
+  const sanitized = sanitizeHostReport(
+    {
+      sampledAt: new Date(at).toISOString(),
+      scope: "host",
+      cpu: { logicalCores: 2 },
+      memory: { totalBytes: 1000, usedBytes: 500, availableBytes: 500 },
+      systemServices: next,
+    },
+    at,
+  );
+  assert.equal(sanitized.systemServices.source, "windows-wsl");
+  assert.equal(sanitized.systemServices.services[1].domain, "wsl");
+  systemdFails = true;
+  assert.equal(
+    (await sampler.collect({ platform: "linux", wsl: true })).source,
+    "windows",
+  );
+  nativeFails = true;
+  assert.equal(
+    (await sampler.collect({ platform: "linux", wsl: true })).available,
+    false,
+  );
+  systemdFails = false;
+  assert.equal(
+    (await sampler.collect({ platform: "linux", wsl: true })).source,
+    "systemd",
+  );
 });
