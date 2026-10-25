@@ -1,3 +1,7 @@
+# 0.3.21
+
+- Report bounded, read-only system service state and available resource counters from systemd, native Windows services (including WSL hosts) and the actual accessible launchd domain. Keep shared Windows process ownership explicit, preserve unknown counters and whitelist public identity/state/numeric fields only.
+
 # Haus NVR changelog
 
 ## 0.3.20
