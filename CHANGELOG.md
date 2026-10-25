@@ -1,6 +1,8 @@
 # Haus NVR changelog
 
-## Unreleased
+## 0.3.20
+
+- Sample live CPU/RAM/swap counters every second while keeping disk/service inventory on a slower path. A single warm Windows CIM reader avoids per-second PowerShell launches; stale/native-failure semantics remain intact.
 
 - Prefer whole-Windows CPU, physical memory use, pagefile and boot uptime on native Windows and WSL collectors. Keep WSL service/runtime scope distinct and preserve native-sample freshness through transient query failure. Add `windows-resources.mjs` to standalone collector installations.
 

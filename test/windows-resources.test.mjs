@@ -200,3 +200,104 @@ test("WSL-only fallback is explicitly scoped and never pretends its limits are h
   assert.equal(telemetry.status().memory.totalBytes, 3 * 1024 ** 3);
   telemetry.stop();
 });
+
+test("a warm Windows reader streams one-second samples without relaunching or retiming stale values", async () => {
+  const { EventEmitter } = await import("node:events");
+  const { PassThrough } = await import("node:stream");
+  const { WindowsResourceSampler } =
+    await import("../lib/windows-resources.mjs");
+  let clock = 1000,
+    launches = 0,
+    closed = false,
+    killed = false;
+  let child;
+  const sampler = new WindowsResourceSampler({
+    now: () => clock,
+    launch: (file, args) => {
+      launches++;
+      assert.equal(file, "powershell.exe");
+      const script = Buffer.from(args.at(-1), "base64").toString("utf16le");
+      assert.match(script, /ReadLineAsync/);
+      assert.match(script, /1000-\$tick.ElapsedMilliseconds/);
+      child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stdin = {
+        end: () => {
+          closed = true;
+        },
+      };
+      child.kill = () => {
+        killed = true;
+        child.emit("exit", 0);
+      };
+      return child;
+    },
+  });
+  const first = sampler.read();
+  const frame = JSON.stringify(fixture());
+  child.stdout.write(frame.slice(0, 25));
+  child.stdout.write(frame.slice(25) + "\n");
+  assert.equal((await first).sampledAt, 1000);
+  clock += 1000;
+  child.stdout.write(JSON.stringify(fixture({ CpuPercent: 50 })) + "\n");
+  assert.equal((await sampler.read()).cpu.usage, 0.5);
+  assert.equal(launches, 1);
+  clock += 3000;
+  child.stdout.write('{"error":"native_resources_unavailable"}\n');
+  await assert.rejects(sampler.read(), /unavailable/);
+  child.stdout.write(frame + "\n");
+  assert.equal((await sampler.read()).sampledAt, clock);
+  sampler.stop();
+  assert.equal(closed, true);
+  assert.equal(killed, true);
+  await assert.rejects(sampler.read(), /unavailable/);
+});
+
+test("Linux fast samples do not rerun disk/service inventory every second", async () => {
+  let clock = 1000,
+    user = 10,
+    idle = 10,
+    commands = 0;
+  const telemetry = await new HostTelemetry({
+    platform: "linux",
+    nativeServices: true,
+    container: false,
+    now: () => clock,
+    system: {
+      cpus: () => [{ model: "CPU", times: { user, idle } }],
+      totalmem: () => 1000,
+      freemem: () => 500,
+      release: () => "6.8",
+      arch: () => "x64",
+      uptime: () => clock / 1000,
+      hostname: () => "fixture",
+      loadavg: () => [1, 2, 3],
+    },
+    list: async () => [],
+    read: async (file) => {
+      if (file === "/proc/meminfo")
+        return "MemTotal: 1000 kB\nMemAvailable: 250 kB\nSwapTotal: 100 kB\nSwapFree: 50 kB\n";
+      throw Error("unavailable");
+    },
+    run: async (file) => {
+      commands++;
+      if (file === "lsblk") return '{"blockdevices":[]}';
+      throw Error("unavailable");
+    },
+  }).initialize({ poll: false });
+  const baseline = commands;
+  for (let second = 1; second < 10; second++) {
+    clock += 1000;
+    user += 25;
+    idle += 75;
+    await telemetry.sample();
+    assert.equal(telemetry.status().cpu.usage, 0.25);
+    assert.equal(telemetry.status().memory.usedBytes, 750 * 1024);
+    assert.equal(telemetry.status().sampledAt, new Date(clock).toISOString());
+    assert.equal(commands, baseline);
+  }
+  clock += 1000;
+  await telemetry.sample();
+  assert.ok(commands > baseline);
+  telemetry.stop();
+});
