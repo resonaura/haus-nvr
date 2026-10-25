@@ -131,3 +131,71 @@ test("hardware inventory is cached between live resource samples and refreshed i
   assert.equal(probes, 2);
   telemetry.stop();
 });
+
+test("WSL reports physical Windows module capacity separately from its runtime memory limit", async () => {
+  const { HostTelemetry, sanitizeHostReport } =
+    await import("../lib/host-telemetry.mjs");
+  const runtimeBytes = 3 * 1024 ** 3;
+  const installedBytes = 16 * 1024 ** 3;
+  let moduleQueries = 0;
+  let clock = 1000;
+  const telemetry = await new HostTelemetry({
+    platform: "linux",
+    container: false,
+    nativeServices: true,
+    now: () => clock,
+    system: {
+      cpus: () => [{ model: "CPU", times: { idle: 10, user: 10 } }],
+      totalmem: () => runtimeBytes,
+      freemem: () => runtimeBytes / 2,
+      release: () => "6.18-microsoft-standard-WSL2",
+      arch: () => "x64",
+      uptime: () => 1,
+      hostname: () => "fixture",
+      loadavg: () => [0, 0, 0],
+    },
+    list: async () => [],
+    read: async () => {
+      throw Error("Unavailable");
+    },
+    run: async (file, args) => {
+      if (file === "lsblk") return JSON.stringify({ blockdevices: [] });
+      if (file.endsWith("powershell.exe")) {
+        const script = Buffer.from(args.at(-1), "base64").toString("utf16le");
+        if (script.includes("Win32_PhysicalMemory")) {
+          assert.match(script, /Measure-Object -Property Capacity -Sum/);
+          moduleQueries++;
+          return JSON.stringify({ MemoryInstalled: installedBytes, GPUs: [] });
+        }
+      }
+      throw Error("Unavailable");
+    },
+  }).initialize({ poll: false });
+  const report = sanitizeHostReport(telemetry.status(), clock);
+  assert.equal(report.memory.installedBytes, installedBytes);
+  assert.equal(report.memory.totalBytes, runtimeBytes);
+  assert.equal(report.memory.usedBytes, runtimeBytes / 2);
+  assert.equal(report.metricsScope, "wsl");
+  assert.equal(report.installedMemoryBytes, undefined);
+  clock += 5000;
+  await telemetry.sample();
+  assert.equal(moduleQueries, 1);
+  assert.equal(telemetry.status().memory.installedBytes, installedBytes);
+  telemetry.stop();
+});
+
+test("unreported Windows module capacity is not guessed from available memory", () => {
+  for (const MemoryInstalled of [
+    null,
+    undefined,
+    0,
+    -1,
+    "17179869184",
+    NaN,
+    Infinity,
+  ])
+    assert.equal(
+      parseWindowsHardware({ MemoryInstalled }).installedMemoryBytes,
+      undefined,
+    );
+});

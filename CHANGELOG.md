@@ -1,5 +1,9 @@
 # Haus NVR changelog
 
+## Unreleased
+
+- Read native Windows installed RAM from summed `Win32_PhysicalMemory.Capacity` during the cached hardware refresh, including WSL collectors. Keep installed capacity separate from WSL's runtime limit and memory utilization; unknown module capacity remains unavailable.
+
 ## 0.3.19
 
 - Read native Windows battery state through WSL with bounded queries and recent-sample caching. Keep active charging and connected external power separate, including a full battery on AC power.
