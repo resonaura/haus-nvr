@@ -15,6 +15,8 @@ import {
   macDisks,
   parseMacBattery,
   parseMeminfo,
+  parseWindowsBattery,
+  windowsBattery,
   windowsTelemetry,
 } from "../lib/host-platform.mjs";
 import {
@@ -38,9 +40,18 @@ const sample = () => ({
   docker: { available: false },
   pm2: { available: false },
 });
+
+function memoryDevice(size) {
+  const raw = Buffer.alloc(32);
+  raw[0] = 17;
+  raw[1] = raw.length;
+  raw.writeUInt16LE(size, 12);
+  return raw;
+}
 test("host reports whitelist fields, reject stale/future reports and bound lists", () => {
   const input = sample();
   input.password = "secret";
+  input.memory.installedBytes = 1024;
   input.battery = { level: 87.5, charging: true, token: "secret" };
   input.docker = {
     available: true,
@@ -79,6 +90,7 @@ test("host reports whitelist fields, reject stale/future reports and bound lists
   assert.equal(clean.docker.containers.length, 256);
   assert.equal(clean.docker.source, "host-collector");
   assert.deepEqual(clean.battery, { level: 87.5, charging: true });
+  assert.equal(clean.memory.installedBytes, 1024);
   assert.ok(!JSON.stringify(clean).includes("secret"));
   assert.throws(() =>
     sanitizeHostReport({
@@ -95,7 +107,9 @@ test("host reports whitelist fields, reject stale/future reports and bound lists
 });
 test("Linux host reports identify the installed distribution without evaluating os-release", async (t) => {
   assert.deepEqual(
-    parseOsRelease('ID=ubuntu\nPRETTY_NAME="Ubuntu 24.04.3 LTS"\nSHELL=$(touch /tmp/nope)'),
+    parseOsRelease(
+      'ID=ubuntu\nPRETTY_NAME="Ubuntu 24.04.3 LTS"\nSHELL=$(touch /tmp/nope)',
+    ),
     { distribution: "ubuntu", osName: "Ubuntu 24.04.3 LTS" },
   );
   const clean = sanitizeHostReport({
@@ -127,10 +141,15 @@ test("Linux host reports identify the installed distribution without evaluating 
         return 'ID=ubuntu\nPRETTY_NAME="Ubuntu 24.04.3 LTS"\n';
       if (file === "/proc/meminfo")
         return "MemTotal: 1 kB\nMemAvailable: 0.5 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n";
+      if (file === "/sys/firmware/dmi/entries/17-0/raw")
+        return memoryDevice(8192);
+      if (file === "/sys/firmware/dmi/entries/17-1/raw")
+        return memoryDevice(8192);
       if (file === "/proc/self/mounts") return "";
       throw new Error("unexpected read");
     },
-    list: async () => [],
+    list: async (path) =>
+      path === "/sys/firmware/dmi/entries" ? ["17-0", "17-1"] : [],
     run: async () => {
       throw new Error("no disk tool available");
     },
@@ -138,6 +157,7 @@ test("Linux host reports identify the installed distribution without evaluating 
   t.after(() => telemetry.stop());
   assert.equal(telemetry.status().distribution, "ubuntu");
   assert.equal(telemetry.status().osName, "Ubuntu 24.04.3 LTS");
+  assert.equal(telemetry.status().memory.installedBytes, 16 * 1024 ** 3);
   assert.equal(telemetry.status().scope, "host");
 });
 test("host battery telemetry is read-only and normalized on Linux and macOS", async () => {
@@ -150,14 +170,174 @@ test("host battery telemetry is read-only and normalized on Linux and macOS", as
     },
   });
   assert.deepEqual(linux, { level: 42, charging: true });
-  assert.deepEqual(parseMacBattery("Now drawing from 'AC Power'\n-InternalBattery-0 (id=1) 84%; charging; 0:22 remaining"), {
-    level: 84,
+  assert.deepEqual(
+    await linuxBattery({
+      list: async () => ["BAT0", "AC"],
+      read: async (file) => {
+        if (file.endsWith("BAT0/capacity")) return "100\n";
+        if (file.endsWith("BAT0/status")) return "Full\n";
+        if (file.endsWith("AC/type")) return "Mains\n";
+        if (file.endsWith("AC/online")) return "1\n";
+        throw new Error("unreported");
+      },
+    }),
+    { level: 100, charging: false, powerConnected: true },
+  );
+  assert.deepEqual(
+    parseMacBattery(
+      "Now drawing from 'AC Power'\n-InternalBattery-0 (id=1) 84%; charging; 0:22 remaining",
+    ),
+    {
+      level: 84,
+      charging: true,
+      powerConnected: true,
+    },
+  );
+  assert.deepEqual(
+    parseMacBattery("-InternalBattery-0 100%; charged; 0:00 remaining"),
+    {
+      level: 100,
+      charging: false,
+    },
+  );
+});
+test("Windows battery charging uses the native charging flag and WSL interop", async () => {
+  assert.deepEqual(
+    parseWindowsBattery({
+      Battery: [{ EstimatedChargeRemaining: 64, BatteryStatus: 2 }],
+      BatteryStatus: [
+        {
+          Active: true,
+          Charging: true,
+          Discharging: false,
+          RemainingCapacity: 6400,
+        },
+      ],
+    }),
+    { level: 64, charging: true, powerConnected: true },
+  );
+  assert.deepEqual(
+    parseWindowsBattery({
+      Battery: [{ EstimatedChargeRemaining: 55, BatteryStatus: 2 }],
+    }),
+    { level: 55, charging: null, powerConnected: true },
+  );
+  assert.deepEqual(
+    parseWindowsBattery({
+      Battery: [{ EstimatedChargeRemaining: 50, BatteryStatus: 6 }],
+      BatteryStatus: [{ Active: true, Charging: false, Discharging: true }],
+    }),
+    { level: 50, charging: false },
+  );
+
+  const full = parseWindowsBattery({
+    Battery: [{ EstimatedChargeRemaining: 100, BatteryStatus: 2 }],
+    BatteryStatus: [
+      { Active: true, Charging: false, Discharging: false, PowerOnline: true },
+    ],
+  });
+  assert.deepEqual(full, { level: 100, charging: false, powerConnected: true });
+  assert.deepEqual(
+    sanitizeHostReport({ ...sample(), battery: full }).battery,
+    full,
+  );
+  assert.deepEqual(
+    parseWindowsBattery({
+      Battery: [{ EstimatedChargeRemaining: 77, BatteryStatus: 1 }],
+      BatteryStatus: [
+        {
+          Active: true,
+          Charging: false,
+          Discharging: true,
+          PowerOnline: false,
+        },
+      ],
+    }),
+    { level: 77, charging: false, powerConnected: false },
+  );
+
+  let batteryQueries = 0;
+  const run = async (file, args) => {
+    assert.equal(
+      file,
+      "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+    );
+    const script = Buffer.from(args.at(-1), "base64").toString("utf16le");
+    assert.match(script, /-Namespace root\\wmi -ClassName BatteryStatus/);
+    assert.match(script, /Select-Object[^;]*Charging,Discharging/);
+    batteryQueries++;
+    return JSON.stringify({
+      Battery: [{ EstimatedChargeRemaining: 64, BatteryStatus: 2 }],
+      BatteryStatus: [{ Active: true, Charging: true, Discharging: false }],
+    });
+  };
+  assert.deepEqual(await windowsBattery({ run, wsl: true }), {
+    level: 64,
     charging: true,
+    powerConnected: true,
   });
-  assert.deepEqual(parseMacBattery("-InternalBattery-0 100%; charged; 0:00 remaining"), {
-    level: 100,
-    charging: false,
+  assert.equal(batteryQueries, 1);
+});
+test("WSL host telemetry samples Windows battery state and throttles interop", async (t) => {
+  let now = 1_000_000;
+  let batteryQueries = 0;
+  const system = {
+    cpus: () => [{ model: "CPU", times: { user: 1, idle: 9 } }],
+    totalmem: () => 1024,
+    freemem: () => 512,
+    release: () => "5.15.167.4-microsoft-standard-WSL2",
+    hostname: () => "black-laptop",
+    arch: () => "x64",
+    uptime: () => 100,
+    loadavg: () => [0, 0, 0],
+  };
+  const telemetry = await new HostTelemetry({
+    platform: "linux",
+    system,
+    container: false,
+    nativeServices: false,
+    now: () => now,
+    read: async (file) => {
+      if (file === "/proc/meminfo")
+        return "MemTotal: 1000 kB\nMemAvailable: 500 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n";
+      if (file === "/etc/os-release")
+        return 'ID=ubuntu\nPRETTY_NAME="Ubuntu"\n';
+      if (file === "/proc/self/mounts") return "";
+      throw new Error("unavailable");
+    },
+    list: async () => [],
+    run: async (file, args = []) => {
+      if (file === "lsblk") throw new Error("unavailable");
+      if (file === "/usr/bin/wslpath") throw new Error("unavailable");
+      if (file.includes("powershell.exe") && args.includes("-EncodedCommand")) {
+        const script = Buffer.from(args.at(-1), "base64").toString("utf16le");
+        if (script.includes("-ClassName BatteryStatus")) {
+          batteryQueries++;
+          return JSON.stringify({
+            Battery: [{ EstimatedChargeRemaining: 64, BatteryStatus: 2 }],
+            BatteryStatus: [
+              { Active: true, Charging: true, Discharging: false },
+            ],
+          });
+        }
+      }
+      throw new Error("unsupported command");
+    },
+  }).initialize({ poll: false });
+  t.after(() => telemetry.stop());
+  assert.deepEqual(telemetry.status().battery, {
+    level: 64,
+    charging: true,
+    powerConnected: true,
   });
+  assert.equal(telemetry.status().metricsScope, "wsl");
+  assert.equal(batteryQueries, 1);
+  now += 5000;
+  await telemetry.sample();
+  assert.equal(batteryQueries, 1);
+  now += 5000;
+  await telemetry.sample();
+  assert.equal(batteryQueries, 2);
 });
 test("missing Linux battery capacity falls back to energy while absent readings stay unknown", async () => {
   const collect = (values) =>
@@ -165,7 +345,8 @@ test("missing Linux battery capacity falls back to energy while absent readings 
       list: async () => ["BAT0"],
       read: async (file) => {
         const field = file.split("/").at(-1);
-        if (!Object.hasOwn(values, field)) throw new Error("unsupported reading");
+        if (!Object.hasOwn(values, field))
+          throw new Error("unsupported reading");
         return values[field];
       },
     });
@@ -199,9 +380,17 @@ test("Windows disk use stays unknown when capacity or free space is missing", as
     { DeviceID: "G:", Size: null, FreeSpace: 200 },
     { DeviceID: "H:", Size: 1000, FreeSpace: 400 },
   ];
-  const { disks } = await windowsTelemetry(async () => JSON.stringify({ Disks: rows }));
-  assert.deepEqual(disks.map((disk) => disk.usedBytes), [null, null, null, 1000, null, 600]);
-  assert.deepEqual(disks.map((disk) => disk.availableBytes), [null, null, null, 0, 200, 400]);
+  const { disks } = await windowsTelemetry(async () =>
+    JSON.stringify({ Disks: rows }),
+  );
+  assert.deepEqual(
+    disks.map((disk) => disk.usedBytes),
+    [null, null, null, 1000, null, 600],
+  );
+  assert.deepEqual(
+    disks.map((disk) => disk.availableBytes),
+    [null, null, null, 0, 200, 400],
+  );
   assert.equal(disks[4].totalBytes, null);
   const sanitized = sanitizeHostReport({ ...sample(), disks });
   assert.equal(sanitized.disks.length, rows.length);
@@ -339,6 +528,7 @@ test("macOS disk hierarchy converts a read-only plist over stdin; Windows CIM re
     assert.ok(args.includes("-NonInteractive"));
     return JSON.stringify({
       MemoryTotal: 1000,
+      MemoryInstalled: 1024,
       MemoryFree: 400,
       SwapTotal: 500,
       SwapFree: 300,
@@ -355,6 +545,7 @@ test("macOS disk hierarchy converts a read-only plist over stdin; Windows CIM re
     });
   });
   assert.equal(windows.memory.usedBytes, 600);
+  assert.equal(windows.memory.installedBytes, 1024);
   assert.equal(windows.swap.usedBytes, 200);
   assert.deepEqual(windows.battery, { level: 55, charging: true });
   assert.equal(windows.disks[0].mountpoint, "C:\\");

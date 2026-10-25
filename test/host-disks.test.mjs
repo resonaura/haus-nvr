@@ -405,6 +405,7 @@ test("WSL release does not become Windows native telemetry or physical host disk
   assert.deepEqual(commands, [
     "lsblk",
     "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+    "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
     "/usr/bin/wslpath",
   ]);
   telemetry.stop();
