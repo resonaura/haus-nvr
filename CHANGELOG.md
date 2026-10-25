@@ -1,3 +1,7 @@
+# 0.3.22
+
+- Declare CPU percentage units for each service provider. Query the Docker daemon OS instead of guessing from its client: Linux CLI stats use per-core units, Windows daemon CLI stats use whole-host units. PM2, systemd, native Windows process counters and launchd retain explicit per-core accounting. Preserve unknown units and whitelist the accounting field at the external-report boundary.
+
 # 0.3.21
 
 - Report bounded, read-only system service state and available resource counters from systemd, native Windows services (including WSL hosts) and the actual accessible launchd domain. Keep shared Windows process ownership explicit, preserve unknown counters and whitelist public identity/state/numeric fields only.
