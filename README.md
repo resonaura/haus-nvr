@@ -103,3 +103,9 @@ Use `HAUS_MAX_STREAMS=1` for an especially small worker. Signed recording reads 
 With a current Haus helper, capable workers can prepare camera recordings for smooth native playback. The helper chooses a lightly loaded node that already holds the original, verifies the returned media and retains the authoritative copy. Older, disconnected or busy nodes fall back to processing on Home Assistant.
 
 Processing uses one encoder per node and preserves source resolution and audio. Admission requires at least one CPU, 768 MiB of RAM and 512 MiB free; high-resolution footage can be declined when the remaining memory allowance is insufficient. Existing activity analysis continues, while new analysis waits during encoding. Weak storage/streaming nodes continue serving their existing roles. Temporary processing output shares the storage budget, expires automatically and is removed after the helper retrieves it.
+
+### Restricted installed-memory inventory on Linux
+
+The unprivileged collector reads nominal RAM from SMBIOS Type 17 records or Raspberry Pi hardware revision/device-tree data. It never estimates fitted DIMMs by rounding usable memory or counting hotplug address blocks, which may contain holes.
+
+When SMBIOS records are root-only, `sudo sh install/host-memory-probe.sh` installs an optional systemd oneshot/timer. The restricted probe exports only byte capacity, boot identity and timestamp to `/var/lib/haus-host-telemetry/installed-memory.json` once a minute. It does not export raw firmware records or execute any device/service commands. The regular collector accepts this report only for the current boot and within two minutes. A root-owned Node executable is copied into the protected probe directory, so an nvm executable under a user home cannot bypass the sandbox.
