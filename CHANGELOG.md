@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Prefer whole-Windows CPU, physical memory use, pagefile and boot uptime on native Windows and WSL collectors. Keep WSL service/runtime scope distinct and preserve native-sample freshness through transient query failure. Add `windows-resources.mjs` to standalone collector installations.
+
 - Read native Windows installed RAM from summed `Win32_PhysicalMemory.Capacity` during the cached hardware refresh, including WSL collectors. Keep installed capacity separate from WSL's runtime limit and memory utilization; unknown module capacity remains unavailable.
 
 ## 0.3.19
