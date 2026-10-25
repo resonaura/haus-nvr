@@ -1,8 +1,16 @@
-# Server telemetry and storage policy (Haus NVR 0.3.3)
+# Server telemetry and storage policy
 
 Haus NVR 0.3.1 adds server telemetry without giving worker containers host management privileges. Pairing and media API protocol 1 remain compatible.
 
 Whole disks, partitions, mapped storage containers and mounted volumes are reported separately. Linux LVM, encryption, RAID and multipath layers do not inflate the whole-disk count; APFS containers remain attached through their physical stores. Version 0.3.15 adds native Windows disk relationships, including through WSL interoperability. Sparse WSL filesystems remain separate from physical Windows capacity, and unknown physical status stays unknown.
+
+## Monitoring without NVR
+
+Version 0.3.28 can run solely as a Haus server-monitoring helper. Save `compose.monitoring.yaml`, create a unique key in `.env` with `HAUS_NODE_KEY`, and run `docker compose -f compose.monitoring.yaml up -d`. In Haus, open an SSH server’s Settings and choose **Connect monitoring**, or add a Haus Helper and leave both camera services off. Home Assistant requires Haus Helper 0.3.44 or later for monitoring-only connections.
+
+An explicit empty `HAUS_ROLES` selects monitoring only. An omitted setting preserves the existing `storage,stream` default. Monitoring-only agents advertise no NVR roles or stream capacity and reject media, backup and storage routes even for authenticated clients. They retain a small identity/settings directory but start no camera sessions, detectors or playback workers. Haus polls their telemetry and schedules no media or recovery work on them.
+
+The same optional host collector described below supplies the physical machine’s metrics without granting the container host command access. For monitoring, use `docker compose -f compose.monitoring.yaml -f compose.monitoring.host-telemetry.yaml up -d` after setting `HAUS_HOST_TELEMETRY_DIRECTORY`. Without that collector, the reported scope remains the container and unsupported host details stay unavailable. SSH and monitoring share a single device identity in Haus; saved SSH credentials never leave the desktop’s secure storage.
 
 ## Storage policy
 
@@ -67,7 +75,7 @@ docker compose -f compose.yaml -f compose.host-telemetry.yaml up -d
 
 The optional Compose override sets `HAUS_HOST_TELEMETRY_FILE=/host-telemetry/host.json` and a read-only directory mount. Existing `/data` and node settings remain unchanged. `deploy/haus-host-telemetry.service` is a systemd example; adjust its user, paths and directory ownership. On macOS, run the same command as a user LaunchAgent; on Windows, run it under the operator account at sign-in using Task Scheduler, mounting the output directory read-only through Docker Desktop. Windows service accounts see different PM2 homes than interactive users. If using PM2 on Windows, set `HAUS_PM2_CLI` to its JavaScript CLI entry file when it is not found automatically.
 
-Samples refresh every five seconds without overlapping. Each subprocess has a 2.5-second timeout (5 seconds for PM2 metadata on busy hosts; 8 seconds and 512 KiB for the Windows disk tree) and at most 1 MiB output. Arrays are limited to 128 disks and 256 service entries; reports are limited to 512 KiB. The worker caches samples outside the HTTP/media request path. A report older than 30 seconds, invalid or missing falls back to local container statistics, so stale host data cannot look current. Docker/PM2 availability can legitimately differ between host accounts.
+Samples refresh every second without overlapping. Each subprocess has a 2.5-second timeout (5 seconds for PM2 metadata on busy hosts; 8 seconds and 512 KiB for the Windows disk tree) and at most 1 MiB output. Arrays are limited to 128 disks and 256 service entries; reports are limited to 512 KiB. The worker caches samples outside the HTTP/media request path. A report older than 30 seconds, invalid or missing falls back to local container statistics, so stale host data cannot look current. Docker/PM2 availability can legitimately differ between host accounts.
 
 ## Host schema
 
