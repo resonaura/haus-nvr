@@ -374,7 +374,7 @@ test("collector sanitizer keeps additive metadata, accepts legacy reports and re
   assert.equal(result.disks[2].physical, null);
 });
 
-test("WSL release does not become Windows native telemetry or physical host disk data", async () => {
+test("unavailable native Windows queries leave an explicit WSL fallback without invented physical disks", async () => {
   const commands = [];
   const system = {
     cpus: () => [{ model: "CPU", times: { user: 1, idle: 9 } }],
@@ -407,6 +407,7 @@ test("WSL release does not become Windows native telemetry or physical host disk
     "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
     "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
     "/usr/bin/wslpath",
+    "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
   ]);
   telemetry.stop();
 });
@@ -489,12 +490,15 @@ test("WSL collector uses real Windows disk relationships but retains Linux scope
   assert.equal(telemetry.status().sampledAt, new Date(1000).toISOString());
   now = 40000;
   await telemetry.sample();
+  await telemetry.inventoryRefresh;
   assert.throws(
     () => sanitizeHostReport(telemetry.status(), now),
     /invalid_host_report/,
   );
   failed = false;
+  now = 50000;
   await telemetry.sample();
+  await telemetry.inventoryRefresh;
   assert.equal(telemetry.status().sampledAt, new Date(now).toISOString());
   telemetry.stop();
 });
