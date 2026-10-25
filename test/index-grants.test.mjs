@@ -57,6 +57,41 @@ test("recording cursor pagination does not lose equal-time clips", async () => {
     index.close();
   }
 });
+
+test("storage references preserve exact original/prepared roles without accepting arbitrary metadata", async () => {
+  const index = new RecordingIndex(":memory:", {
+    info: async () => ({ size: 10 }),
+  });
+  const event = {
+    id: "a".repeat(36),
+    cameraId: "camera.fixture",
+    startAt: 1000,
+    endAt: 2000,
+    duration: 1,
+    kinds: [],
+  };
+  const input = {
+    event,
+    digest: "b".repeat(64),
+    variant: "prepared",
+    originalDigest: "c".repeat(64),
+  };
+  try {
+    await index.add(input);
+    assert.equal(index.get(event.id).originalDigest, input.originalDigest);
+    assert.equal(index.get(event.id).storageVariant, "prepared");
+    await assert.rejects(
+      index.add({ ...input, originalDigest: "not-a-digest" }),
+      /invalid_recording_metadata/,
+    );
+    await assert.rejects(
+      index.add({ ...input, variant: "guess" }),
+      /invalid_recording_metadata/,
+    );
+  } finally {
+    index.close();
+  }
+});
 test("replicates corrected playback timing and bounded repair diagnostics", async () => {
   const index = new RecordingIndex(":memory:", {
     info: async () => ({ size: 10 }),
