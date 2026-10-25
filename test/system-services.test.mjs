@@ -233,3 +233,16 @@ test("completed one-shot accounting requires an explicitly empty cgroup", () => 
   ).report.services[0];
   assert.equal(populated.memoryBytes, null);
 });
+
+test("a service between restart attempts has no current memory owner when its cgroup is empty", () => {
+  const pending =
+    unit("[not set]", 0)
+      .replace("ActiveState=active", "ActiveState=activating")
+      .replace("SubState=running", "SubState=auto-restart")
+      .replace("MemoryCurrent=1048576", "MemoryCurrent=[not set]") +
+    "\nControlGroup=";
+  const report = parseSystemdServices(pending).report;
+  assert.equal(report.services[0].status, "activating");
+  assert.equal(report.cpuPercent, 0);
+  assert.equal(report.memoryBytes, 0);
+});
