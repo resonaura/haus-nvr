@@ -128,6 +128,7 @@ test("hardware inventory is cached between live resource samples and refreshed i
   );
   clock += 60000;
   await telemetry.sample();
+  await telemetry.inventoryRefresh;
   assert.equal(probes, 2);
   telemetry.stop();
 });

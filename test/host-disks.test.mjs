@@ -490,6 +490,7 @@ test("WSL collector uses real Windows disk relationships but retains Linux scope
   assert.equal(telemetry.status().sampledAt, new Date(1000).toISOString());
   now = 40000;
   await telemetry.sample();
+  await telemetry.inventoryRefresh;
   assert.throws(
     () => sanitizeHostReport(telemetry.status(), now),
     /invalid_host_report/,
@@ -497,6 +498,7 @@ test("WSL collector uses real Windows disk relationships but retains Linux scope
   failed = false;
   now = 50000;
   await telemetry.sample();
+  await telemetry.inventoryRefresh;
   assert.equal(telemetry.status().sampledAt, new Date(now).toISOString());
   telemetry.stop();
 });

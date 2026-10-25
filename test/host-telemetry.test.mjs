@@ -337,6 +337,7 @@ test("WSL host telemetry samples Windows battery state and throttles interop", a
   assert.equal(batteryQueries, 1);
   now += 5000;
   await telemetry.sample();
+  await telemetry.inventoryRefresh;
   assert.equal(batteryQueries, 2);
 });
 test("missing Linux battery capacity falls back to energy while absent readings stay unknown", async () => {

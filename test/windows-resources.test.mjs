@@ -217,11 +217,11 @@ test("a warm Windows reader streams one-second samples without relaunching or re
       launches++;
       assert.equal(file, "powershell.exe");
       const script = Buffer.from(args.at(-1), "base64").toString("utf16le");
-      assert.match(script, /ReadLineAsync/);
-      assert.match(script, /1000-\$tick.ElapsedMilliseconds/);
+      assert.match(script, /ReadLine/);
       child = new EventEmitter();
       child.stdout = new PassThrough();
       child.stdin = {
+        write: (value) => assert.equal(value, "sample\n"),
         end: () => {
           closed = true;
         },
@@ -298,6 +298,62 @@ test("Linux fast samples do not rerun disk/service inventory every second", asyn
   }
   clock += 1000;
   await telemetry.sample();
+  await telemetry.inventoryRefresh;
   assert.ok(commands > baseline);
+  telemetry.stop();
+});
+
+test("a slow inventory refresh never blocks one-second counters or overwrites a newer sample", async () => {
+  let clock = 1000,
+    user = 10,
+    idle = 10,
+    inventories = 0;
+  let finish;
+  const gate = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const telemetry = await new HostTelemetry({
+    platform: "linux",
+    nativeServices: false,
+    container: false,
+    now: () => clock,
+    system: {
+      cpus: () => [{ model: "CPU", times: { user, idle } }],
+      totalmem: () => 1000,
+      freemem: () => 500,
+      release: () => "6.8",
+      arch: () => "x64",
+      uptime: () => clock / 1000,
+      hostname: () => "fixture",
+      loadavg: () => [1, 2, 3],
+    },
+    list: async () => [],
+    read: async (path) => {
+      if (path === "/proc/meminfo")
+        return "MemTotal: 1000 kB\nMemAvailable: 250 kB\n";
+      throw Error("unavailable");
+    },
+    run: async (file) => {
+      if (file !== "lsblk") throw Error("unavailable");
+      if (++inventories > 1) await gate;
+      return '{"blockdevices":[]}';
+    },
+  }).initialize({ poll: false });
+  clock += 10000;
+  user += 30;
+  idle += 70;
+  await telemetry.sample();
+  assert.ok(telemetry.inventoryRefresh);
+  clock += 1000;
+  user += 40;
+  idle += 60;
+  await telemetry.sample();
+  const latest = telemetry.status();
+  assert.equal(latest.cpu.usage, 0.4);
+  assert.equal(latest.sampledAt, new Date(clock).toISOString());
+  finish();
+  await telemetry.inventoryRefresh;
+  assert.equal(telemetry.status().sampledAt, latest.sampledAt);
+  assert.equal(telemetry.status().cpu.usage, 0.4);
   telemetry.stop();
 });
