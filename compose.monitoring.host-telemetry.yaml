@@ -1,0 +1,10 @@
+# Optional host collector for compose.monitoring.yaml.
+services:
+  haus-helper:
+    environment:
+      HAUS_HOST_TELEMETRY_FILE: /host-telemetry/host.json
+    volumes:
+      - type: bind
+        source: ${HAUS_HOST_TELEMETRY_DIRECTORY:?Set the host telemetry directory}
+        target: /host-telemetry
+        read_only: true

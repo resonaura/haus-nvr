@@ -9,11 +9,11 @@ import { createNode } from "../lib/server.mjs";
 import { sign, authenticator } from "../lib/auth.mjs";
 const key = "test-only-node-key-32-characters-long";
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "haus-nvr-"));
   const blobs = new Blobs(root, { maxBytes: 10000, reserveBytes: 0 });
   await blobs.initialize();
-  const server = createNode({ key, blobs, nodeId: "test" });
+  const server = createNode({ key, blobs, nodeId: "test", ...options });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${server.address().port}`;
   t.after(async () => {
@@ -23,6 +23,33 @@ async function fixture(t) {
   });
   return { base, blobs, root };
 }
+test("monitoring-only nodes expose authenticated telemetry and reject every media or storage route", async (t) => {
+  const { base, blobs } = await fixture(t, {
+    roles: [],
+    host: { status: () => ({ scope: "host", cpu: { usage: 0.2 } }), stop() {} },
+  });
+  const status = await fetch(base + "/v1/status", {
+    headers: sign(key, "GET", "/v1/status"),
+  }).then((response) => response.json());
+  assert.deepEqual(status.roles, []);
+  assert.equal(status.features.monitoringOnly, true);
+  assert.equal(status.host.cpu.usage, 0.2);
+  assert.equal(status.streams.max, 0);
+  for (const [method, path] of [
+    ["PUT", "/v1/blobs/" + hash("unexpected")],
+    ["GET", "/v1/backups"],
+    ["POST", "/v1/recordings"],
+    ["PATCH", "/v1/settings"],
+    ["POST", "/v1/grants"],
+  ]) {
+    const response = await fetch(base + path, {
+      method,
+      headers: sign(key, method, path),
+    });
+    assert.equal(response.status, 404, `${method} ${path}`);
+  }
+  assert.equal(blobs.used, 0);
+});
 test("auth rejects replay, stale timestamps, path and body tampering", () => {
   const auth = authenticator(key);
   const path = "/v1/status";

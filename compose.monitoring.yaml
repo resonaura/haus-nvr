@@ -1,0 +1,18 @@
+# System monitoring only: no recording, streaming, preparation or backup jobs.
+services:
+  haus-helper:
+    image: ghcr.io/resonaura/haus-nvr:0.3.28
+    restart: unless-stopped
+    ports: ["8098:8098"]
+    environment:
+      HAUS_NODE_ID: ${HAUS_NODE_ID:-home-server}
+      HAUS_NODE_KEY: ${HAUS_NODE_KEY:?Set a unique pairing key in .env}
+      HAUS_ROLES: ""
+    volumes: ["haus-monitoring:/data"]
+    read_only: true
+    tmpfs: ["/tmp:size=32m"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    stop_grace_period: 10s
+volumes:
+  haus-monitoring:
