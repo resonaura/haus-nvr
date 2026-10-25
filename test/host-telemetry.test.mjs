@@ -15,6 +15,8 @@ import {
   macDisks,
   parseMacBattery,
   parseMeminfo,
+  parseWindowsBattery,
+  windowsBattery,
   windowsTelemetry,
 } from "../lib/host-platform.mjs";
 import {
@@ -184,6 +186,114 @@ test("host battery telemetry is read-only and normalized on Linux and macOS", as
       charging: false,
     },
   );
+});
+test("Windows battery charging uses the native charging flag and WSL interop", async () => {
+  assert.deepEqual(
+    parseWindowsBattery({
+      Battery: [{ EstimatedChargeRemaining: 64, BatteryStatus: 2 }],
+      BatteryStatus: [
+        {
+          Active: true,
+          Charging: true,
+          Discharging: false,
+          RemainingCapacity: 6400,
+        },
+      ],
+    }),
+    { level: 64, charging: true },
+  );
+  assert.deepEqual(
+    parseWindowsBattery({
+      Battery: [{ EstimatedChargeRemaining: 55, BatteryStatus: 2 }],
+    }),
+    { level: 55, charging: null },
+  );
+  assert.deepEqual(
+    parseWindowsBattery({
+      Battery: [{ EstimatedChargeRemaining: 50, BatteryStatus: 6 }],
+      BatteryStatus: [{ Active: true, Charging: false, Discharging: true }],
+    }),
+    { level: 50, charging: false },
+  );
+
+  let batteryQueries = 0;
+  const run = async (file, args) => {
+    assert.equal(
+      file,
+      "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+    );
+    const script = Buffer.from(args.at(-1), "base64").toString("utf16le");
+    assert.match(script, /-Namespace root\\wmi -ClassName BatteryStatus/);
+    assert.match(script, /Select-Object[^;]*Charging,Discharging/);
+    batteryQueries++;
+    return JSON.stringify({
+      Battery: [{ EstimatedChargeRemaining: 64, BatteryStatus: 2 }],
+      BatteryStatus: [
+        { Active: true, Charging: true, Discharging: false },
+      ],
+    });
+  };
+  assert.deepEqual(await windowsBattery({ run, wsl: true }), {
+    level: 64,
+    charging: true,
+  });
+  assert.equal(batteryQueries, 1);
+});
+test("WSL host telemetry samples Windows battery state and throttles interop", async (t) => {
+  let now = 1_000_000;
+  let batteryQueries = 0;
+  const system = {
+    cpus: () => [{ model: "CPU", times: { user: 1, idle: 9 } }],
+    totalmem: () => 1024,
+    freemem: () => 512,
+    release: () => "5.15.167.4-microsoft-standard-WSL2",
+    hostname: () => "black-laptop",
+    arch: () => "x64",
+    uptime: () => 100,
+    loadavg: () => [0, 0, 0],
+  };
+  const telemetry = await new HostTelemetry({
+    platform: "linux",
+    system,
+    container: false,
+    nativeServices: false,
+    now: () => now,
+    read: async (file) => {
+      if (file === "/proc/meminfo")
+        return "MemTotal: 1000 kB\nMemAvailable: 500 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n";
+      if (file === "/etc/os-release") return 'ID=ubuntu\nPRETTY_NAME="Ubuntu"\n';
+      if (file === "/proc/self/mounts") return "";
+      throw new Error("unavailable");
+    },
+    list: async () => [],
+    run: async (file, args = []) => {
+      if (file === "lsblk") throw new Error("unavailable");
+      if (file === "/usr/bin/wslpath") throw new Error("unavailable");
+      if (file.includes("powershell.exe") && args.includes("-EncodedCommand")) {
+        const script = Buffer.from(args.at(-1), "base64").toString("utf16le");
+        if (script.includes("-ClassName BatteryStatus")) {
+          batteryQueries++;
+          return JSON.stringify({
+            Battery: [{ EstimatedChargeRemaining: 64, BatteryStatus: 2 }],
+            BatteryStatus: [
+              { Active: true, Charging: true, Discharging: false },
+            ],
+          });
+        }
+      }
+      throw new Error("unsupported command");
+    },
+  }).initialize({ poll: false });
+  t.after(() => telemetry.stop());
+  assert.deepEqual(telemetry.status().battery, { level: 64, charging: true });
+  assert.equal(telemetry.status().metricsScope, "wsl");
+  assert.equal(batteryQueries, 1);
+  now += 5000;
+  await telemetry.sample();
+  assert.equal(batteryQueries, 1);
+  now += 5000;
+  await telemetry.sample();
+  assert.equal(batteryQueries, 2);
 });
 test("missing Linux battery capacity falls back to energy while absent readings stay unknown", async () => {
   const collect = (values) =>
