@@ -217,3 +217,19 @@ test("WSL includes both managers with distinct identities and independent failur
     "systemd",
   );
 });
+
+test("completed one-shot accounting requires an explicitly empty cgroup", () => {
+  const exited = unit("[not set]", 0)
+    .replace("SubState=running", "SubState=exited")
+    .replace("MemoryCurrent=1048576", "MemoryCurrent=[not set]");
+  const absent = parseSystemdServices(exited).report.services[0];
+  assert.equal(absent.memoryBytes, null);
+  const empty = parseSystemdServices(exited + "\nControlGroup=").report
+    .services[0];
+  assert.equal(empty.memoryBytes, 0);
+  assert.equal(empty.cpuPercent, 0);
+  const populated = parseSystemdServices(
+    exited + "\nControlGroup=/system.slice/fixture.service",
+  ).report.services[0];
+  assert.equal(populated.memoryBytes, null);
+});
