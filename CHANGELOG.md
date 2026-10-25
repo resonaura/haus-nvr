@@ -1,5 +1,11 @@
 # Haus NVR changelog
 
+## 0.3.19
+
+- Read native Windows battery state through WSL with bounded queries and recent-sample caching. Keep active charging and connected external power separate, including a full battery on AC power.
+- Preserve connected-power telemetry from Windows WMI, Linux power supplies and macOS power status through the host report sanitizer.
+- Read installed Linux memory from SMBIOS module capacities or physical device-tree banks where available. Include `host-memory.mjs` when updating standalone collectors.
+
 ## 0.3.18
 
 - Report the actual Windows host OS caption/version/build and all native display adapters separately from the WSL CPU/memory/process scope. Preserve a real Windows OS name for older clients while adding structured hardware metadata.

@@ -171,12 +171,26 @@ test("host battery telemetry is read-only and normalized on Linux and macOS", as
   });
   assert.deepEqual(linux, { level: 42, charging: true });
   assert.deepEqual(
+    await linuxBattery({
+      list: async () => ["BAT0", "AC"],
+      read: async (file) => {
+        if (file.endsWith("BAT0/capacity")) return "100\n";
+        if (file.endsWith("BAT0/status")) return "Full\n";
+        if (file.endsWith("AC/type")) return "Mains\n";
+        if (file.endsWith("AC/online")) return "1\n";
+        throw new Error("unreported");
+      },
+    }),
+    { level: 100, charging: false, powerConnected: true },
+  );
+  assert.deepEqual(
     parseMacBattery(
       "Now drawing from 'AC Power'\n-InternalBattery-0 (id=1) 84%; charging; 0:22 remaining",
     ),
     {
       level: 84,
       charging: true,
+      powerConnected: true,
     },
   );
   assert.deepEqual(
@@ -200,13 +214,13 @@ test("Windows battery charging uses the native charging flag and WSL interop", a
         },
       ],
     }),
-    { level: 64, charging: true },
+    { level: 64, charging: true, powerConnected: true },
   );
   assert.deepEqual(
     parseWindowsBattery({
       Battery: [{ EstimatedChargeRemaining: 55, BatteryStatus: 2 }],
     }),
-    { level: 55, charging: null },
+    { level: 55, charging: null, powerConnected: true },
   );
   assert.deepEqual(
     parseWindowsBattery({
@@ -214,6 +228,32 @@ test("Windows battery charging uses the native charging flag and WSL interop", a
       BatteryStatus: [{ Active: true, Charging: false, Discharging: true }],
     }),
     { level: 50, charging: false },
+  );
+
+  const full = parseWindowsBattery({
+    Battery: [{ EstimatedChargeRemaining: 100, BatteryStatus: 2 }],
+    BatteryStatus: [
+      { Active: true, Charging: false, Discharging: false, PowerOnline: true },
+    ],
+  });
+  assert.deepEqual(full, { level: 100, charging: false, powerConnected: true });
+  assert.deepEqual(
+    sanitizeHostReport({ ...sample(), battery: full }).battery,
+    full,
+  );
+  assert.deepEqual(
+    parseWindowsBattery({
+      Battery: [{ EstimatedChargeRemaining: 77, BatteryStatus: 1 }],
+      BatteryStatus: [
+        {
+          Active: true,
+          Charging: false,
+          Discharging: true,
+          PowerOnline: false,
+        },
+      ],
+    }),
+    { level: 77, charging: false, powerConnected: false },
   );
 
   let batteryQueries = 0;
@@ -228,14 +268,13 @@ test("Windows battery charging uses the native charging flag and WSL interop", a
     batteryQueries++;
     return JSON.stringify({
       Battery: [{ EstimatedChargeRemaining: 64, BatteryStatus: 2 }],
-      BatteryStatus: [
-        { Active: true, Charging: true, Discharging: false },
-      ],
+      BatteryStatus: [{ Active: true, Charging: true, Discharging: false }],
     });
   };
   assert.deepEqual(await windowsBattery({ run, wsl: true }), {
     level: 64,
     charging: true,
+    powerConnected: true,
   });
   assert.equal(batteryQueries, 1);
 });
@@ -261,7 +300,8 @@ test("WSL host telemetry samples Windows battery state and throttles interop", a
     read: async (file) => {
       if (file === "/proc/meminfo")
         return "MemTotal: 1000 kB\nMemAvailable: 500 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n";
-      if (file === "/etc/os-release") return 'ID=ubuntu\nPRETTY_NAME="Ubuntu"\n';
+      if (file === "/etc/os-release")
+        return 'ID=ubuntu\nPRETTY_NAME="Ubuntu"\n';
       if (file === "/proc/self/mounts") return "";
       throw new Error("unavailable");
     },
@@ -285,7 +325,11 @@ test("WSL host telemetry samples Windows battery state and throttles interop", a
     },
   }).initialize({ poll: false });
   t.after(() => telemetry.stop());
-  assert.deepEqual(telemetry.status().battery, { level: 64, charging: true });
+  assert.deepEqual(telemetry.status().battery, {
+    level: 64,
+    charging: true,
+    powerConnected: true,
+  });
   assert.equal(telemetry.status().metricsScope, "wsl");
   assert.equal(batteryQueries, 1);
   now += 5000;
