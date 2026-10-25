@@ -411,6 +411,7 @@ test("stream-copy ring tolerates file-write jitter but rejects real missing foot
       stage: "coverage",
       reason: "camera_recording_incomplete",
       parts: 3,
+      coverage: { missingStartMs: 0, missingEndMs: 0, largestGapMs: 2000 },
     },
   ]);
   assert.ok(
@@ -477,6 +478,90 @@ test("three short captures share a bounded disk budget instead of reserving a Gi
   assert.ok(peak <= limit);
   await Promise.all(rings.map((r) => r.stop()));
   assert.equal(reserved, 0);
+});
+
+test("a late closing segment gets a bounded grace period without taking a finalizer slot", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "haus-ring-late-tail-"));
+  let at = 100000,
+    finalizers = 0;
+  const diagnostics = [];
+  const ring = new CameraRing(root, "rtsp://127.0.0.1/fixture", {
+    now: () => at,
+    log: (event, fields) => diagnostics.push({ event, ...fields }),
+    probe: async (path) => ({
+      video: true,
+      audio: true,
+      duration: path.endsWith("recording.mp4") ? 14 : 2,
+    }),
+    run: async (_file, args) => writeFile(args.at(-1), "encoded original"),
+    acquireFinalizer: () => {
+      finalizers++;
+      return () => finalizers--;
+    },
+    spawnProcess: () => {
+      const child = new EventEmitter();
+      child.exitCode = null;
+      child.kill = () => {
+        child.exitCode = 0;
+        queueMicrotask(() => child.emit("close", 0));
+      };
+      return child;
+    },
+  });
+  t.after(async () => {
+    await ring.stop();
+    await rm(root, { recursive: true, force: true });
+  });
+  await ring.start();
+  const append = async (first, end) => {
+    for (let i = first; i < end; i++) {
+      const file = join(root, String(i).padStart(9, "0") + ".ts");
+      await writeFile(file, "encoded");
+      await utimes(file, 92 + i * 2, 92 + i * 2);
+    }
+    await writeFile(
+      join(root, "segments.csv"),
+      Array.from(
+        { length: end },
+        (_, i) => `${String(i).padStart(9, "0")}.ts,${i * 2},${(i + 1) * 2}\n`,
+      ).join(""),
+    );
+  };
+  await append(0, 4);
+  await ring.sample();
+  const id = randomUUID();
+  await ring.record({ eventId: id, startAt: 92000, endAt: 106000 });
+  at = 109000;
+  await ring.sample();
+  assert.equal(ring.jobs.get(id).state, "recording");
+  assert.equal(finalizers, 0);
+  // The encoded tail exists but its segment/list closes late after bursty input.
+  await append(4, 8);
+  at = 110000;
+  await ring.sample();
+  await ring.finalizing;
+  const saved = ring.jobs.get(id);
+  assert.equal(saved.state, "ready");
+  assert.equal(saved.result.audio, true);
+  assert.equal(saved.result.mediaStartAt, 92000);
+  assert.equal(saved.result.duration, 14);
+  assert.equal(finalizers, 0);
+
+  const absent = randomUUID();
+  await ring.record({ eventId: absent, startAt: 104000, endAt: 120000 });
+  at = 123000;
+  await ring.sample();
+  assert.equal(ring.jobs.get(absent).state, "recording");
+  at = 135000;
+  await ring.sample();
+  await ring.finalizing;
+  assert.equal(ring.jobs.get(absent).state, "failed");
+  assert.deepEqual(diagnostics[0].coverage, {
+    missingStartMs: 0,
+    missingEndMs: 14000,
+    largestGapMs: 0,
+  });
+  assert.ok((await stat(saved.output)).size > 0);
 });
 
 test("capture grows its reservation before copying and releases partial files if growth is refused", async (t) => {
