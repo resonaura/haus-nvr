@@ -20,6 +20,7 @@ import {
   windowsTelemetry,
 } from "../lib/host-platform.mjs";
 import {
+  command,
   dockerTelemetry,
   memorySize,
   pm2Telemetry,
@@ -551,6 +552,32 @@ test("macOS disk hierarchy converts a read-only plist over stdin; Windows CIM re
   assert.deepEqual(windows.battery, { level: 55, charging: true });
   assert.equal(windows.disks[0].mountpoint, "C:\\");
 });
+test("Docker inventory tolerates slow daemon replies within a bounded background budget", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "haus-slow-docker-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = join(root, "daemon.mjs");
+  await writeFile(
+    fixture,
+    `
+    const operation = process.argv[2];
+    if (['ps', 'stats', 'info'].includes(operation))
+      await new Promise(resolve => setTimeout(resolve, 2800));
+    console.log(JSON.stringify(operation === 'ps'
+      ? {ID:'fixture',Names:'home-service',Image:'fixture',State:'running',Status:'Up'}
+      : operation === 'stats'
+        ? {ID:'fixture',CPUPerc:'25%',MemUsage:'64MiB / 1GiB'}
+        : {OSType:'linux'}));
+  `,
+  );
+  const docker = await dockerTelemetry((_file, args, options) =>
+    command(process.execPath, [fixture, ...args], options),
+  );
+  assert.equal(docker.available, true);
+  assert.equal(docker.cpuPercentBasis, "core");
+  assert.equal(docker.containers[0].cpuPercent, 25);
+  assert.equal(docker.containers[0].memoryUsedBytes, 64 * 1024 ** 2);
+});
+
 test("Docker/PM2 collectors expose status only and never start a stopped PM2 daemon", async () => {
   const docker = await dockerTelemetry(async (file, args) => {
     assert.equal(file, "docker");
