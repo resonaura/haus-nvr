@@ -1,3 +1,9 @@
+## 0.3.36
+
+- Terminate the replayed cached H264 access unit with a small AUD delimiter for late RTSP readers. FFmpeg otherwise can finish its one-second audio probe without emitting the buffered picture, reject the viewer with missing video dimensions and wait for a fresh keyframe on retry. Do not fabricate a video frame, extend timestamps or forward dependent frames before a clean IDR.
+- Reproduce the failure with the real native relay and production FFmpeg viewer arguments against a twelve-second GOP. Verify both audio/video RTP and a fully decoded cached picture arrive before the next IDR; preserve exact cached NAL payloads, RTP clock/sequence continuity and the fresh-IDR gate.
+- Keep source producers, P2P transport, recording/pre-event settings, original media and weak-node budgets unchanged. Synthetic startup acceptance does not establish that every real camera/link is free of freezes.
+
 ## 0.3.35
 
 - Reuse available media-test tools on CI runners. Install missing packages with bounded network timeouts/retries and an overall deadline, so a stalled package mirror cannot hold release validation indefinitely. Keep every test and both architecture image checks.

@@ -589,6 +589,17 @@ void RTSPServer::handle_rtsp_request(int client_fd, const std::string& req, RTSP
                 for (const auto& packet : cached_idr) {
                     send_client_rtp_packet(client_fd, active, true, packet.data(), packet.size());
                 }
+                // H264 Annex-B readers need a following NAL boundary to emit
+                // the completed cached picture. Without it FFmpeg can finish
+                // probing on audio before the next camera IDR supplies one.
+                // An AUD closes that picture without fabricating another frame.
+                if (!is_hevc_ && picture.size() >= 12) {
+                    uint8_t delimiter[14] = {0x80, 96};
+                    std::copy(picture.begin() + 4, picture.begin() + 12, delimiter + 4);
+                    delimiter[12] = 9;
+                    delimiter[13] = 0xf0;  // primary_pic_type=7, rbsp_stop_one_bit.
+                    send_client_rtp_packet(client_fd, active, true, delimiter, sizeof(delimiter));
+                }
                 // This cached still is immediately decodable, but the next
                 // live P-frame may depend on pictures before PLAY. Resume only
                 // at a new IDR rather than attach the decoder in mid-GOP.
