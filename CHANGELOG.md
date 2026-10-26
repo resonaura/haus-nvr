@@ -1,3 +1,8 @@
+## 0.3.35
+
+- Reuse available media-test tools on CI runners. Install missing packages with bounded network timeouts/retries and an overall deadline, so a stalled package mirror cannot hold release validation indefinitely. Keep every test and both architecture image checks.
+- Includes the Linux host CPU accounting correction from 0.3.34; no media, storage or runtime-policy changes.
+
 ## 0.3.34
 
 - Use complete Linux host CPU counters for one-second and inventory samples. Keep I/O wait in elapsed time without counting it as processor work, and avoid double-counting guest time. Windows native metrics and container resource accounting retain their existing sources.
