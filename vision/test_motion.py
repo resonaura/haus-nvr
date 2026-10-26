@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from motion import Foreground, Analysis, WIDTH, HEIGHT, object_kind
+from motion import Foreground, Analysis, MovementTracks, WIDTH, HEIGHT, object_kind
 
 
 class MotionTests(unittest.TestCase):
@@ -44,6 +44,61 @@ class MotionTests(unittest.TestCase):
     def test_small_pet_scores_do_not_lower_the_person_false_positive_threshold(self):
         self.assertEqual(object_kind([0, 0, 1, 1, 0.388, 16]), 'pet')
         self.assertIsNone(object_kind([0, 0, 1, 1, 0.404, 0]))
+
+    def test_swaying_leaf_blob_does_not_become_sustained_travel(self):
+        tracks = MovementTracks()
+        for index in range(40):
+            mask = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
+            x = 90 + (3 if index % 2 else -3)
+            mask[40:65, x:x+25] = 255
+            self.assertFalse(tracks.update(mask))
+
+    def test_coherent_small_object_travel_survives_sway_filter(self):
+        tracks = MovementTracks()
+        detected = []
+        for index in range(8):
+            mask = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
+            mask[60:85, 30+index*8:55+index*8] = 255
+            detected.append(tracks.update(mask))
+        self.assertTrue(any(detected))
+
+    def test_repeated_keyframes_are_not_new_activity_or_inference(self):
+        class Model:
+            calls = 0
+            def infer(self, image):
+                self.calls += 1
+                return []
+        model = Model()
+        analysis = Analysis('objects', model=model)
+        image = np.full((HEIGHT, WIDTH, 3), 40, dtype=np.uint8)
+        for _ in range(20):
+            self.assertEqual(analysis.analyze(image), [])
+        self.assertEqual(model.calls, 0)
+
+    def test_leaf_only_scene_does_not_promote_an_unmoving_person(self):
+        class StaticPerson:
+            def infer(self, image):
+                return [[220, 120, 300, 300, 0.9, 0]]
+        analysis = Analysis('objects', model=StaticPerson())
+        for index in range(30):
+            frame = np.full((HEIGHT, WIDTH, 3), 40, dtype=np.uint8)
+            frame[10:35, 15+index%6:40+index%6] = 200
+            self.assertEqual(analysis.analyze(frame), [])
+
+    def test_objects_require_two_matching_observations_not_one_model_guess(self):
+        class Model:
+            def infer(self, image):
+                return [[30, 130, 140, 270, 0.9, 0]]
+        class Gate:
+            def update(self, image):
+                return np.full((HEIGHT, WIDTH), 255, dtype=np.uint8)
+        analysis = Analysis('objects', model=Model())
+        analysis.gate = Gate()
+        first = np.full((HEIGHT, WIDTH, 3), 40, dtype=np.uint8)
+        second = first.copy()
+        second[30:80, 40:60] = 200
+        self.assertEqual(analysis.analyze(first), [])
+        self.assertEqual(analysis.analyze(second), [{'kind': 'person', 'confidence': 0.9}])
 
 
 if __name__ == '__main__':
