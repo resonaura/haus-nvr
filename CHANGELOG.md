@@ -1,3 +1,8 @@
+## 0.3.34
+
+- Use complete Linux host CPU counters for one-second and inventory samples. Keep I/O wait in elapsed time without counting it as processor work, and avoid double-counting guest time. Windows native metrics and container resource accounting retain their existing sources.
+- Reset the CPU baseline when the counter source changes or Linux I/O-wait counters decrease; cover disk-heavy intervals, recovery/fallback and the displayed one-second telemetry path.
+
 ## 0.3.33
 
 - Scope browser RTCP NACK retransmission to the requested media SSRC. Bundled audio/video feedback can share RTP sequence numbers; a request for one track must not replay the other track's cached packet. Keep bounded retransmission caches and leave other feedback untouched.

@@ -6,7 +6,7 @@ Whole disks, partitions, mapped storage containers and mounted volumes are repor
 
 ## Monitoring without NVR
 
-Version 0.3.33 can run solely as a Haus server-monitoring helper. Save `compose.monitoring.yaml`, create a unique key in `.env` with `HAUS_NODE_KEY`, and run `docker compose -f compose.monitoring.yaml up -d`. In Haus, open an SSH server’s Settings and choose **Connect monitoring**, or add a Haus Helper and leave both camera services off. Home Assistant requires Haus Helper 0.3.44 or later for monitoring-only connections.
+Version 0.3.34 can run solely as a Haus server-monitoring helper. Save `compose.monitoring.yaml`, create a unique key in `.env` with `HAUS_NODE_KEY`, and run `docker compose -f compose.monitoring.yaml up -d`. In Haus, open an SSH server’s Settings and choose **Connect monitoring**, or add a Haus Helper and leave both camera services off. Home Assistant requires Haus Helper 0.3.44 or later for monitoring-only connections.
 
 An explicit empty `HAUS_ROLES` selects monitoring only. An omitted setting preserves the existing `storage,stream` default. Monitoring-only agents advertise no NVR roles or stream capacity and reject media, backup and storage routes even for authenticated clients. They retain a small identity/settings directory but start no camera sessions, detectors or playback workers. Haus polls their telemetry and schedules no media or recovery work on them.
 
