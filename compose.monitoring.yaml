@@ -1,7 +1,7 @@
 # System monitoring only: no recording, streaming, preparation or backup jobs.
 services:
   haus-helper:
-    image: ghcr.io/resonaura/haus-nvr:0.3.32
+    image: ghcr.io/resonaura/haus-nvr:0.3.33
     restart: unless-stopped
     ports: ["8098:8098"]
     environment:

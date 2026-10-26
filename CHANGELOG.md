@@ -1,3 +1,8 @@
+## 0.3.33
+
+- Scope browser RTCP NACK retransmission to the requested media SSRC. Bundled audio/video feedback can share RTP sequence numbers; a request for one track must not replay the other track's cached packet. Keep bounded retransmission caches and leave other feedback untouched.
+- Validate compound packet lengths and final-member padding before decoding feedback. Add a regression against the pinned production libdatachannel implementation and run it in both native image builds. No camera source, recording, retention or resource-policy changes.
+
 # 0.3.31
 
 ## 0.3.32

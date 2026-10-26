@@ -41,3 +41,9 @@ add_executable(
 )
 target_include_directories(haus-camera-media PRIVATE src ${glaze_SOURCE_DIR}/include)
 target_link_libraries(haus-camera-media PRIVATE glaze::glaze LibDataChannel::LibDataChannel pthread)
+
+# This regression uses the pinned production RTCP implementation. Keep it in the
+# builder stage, with assertions enabled even for the Release media image.
+add_executable(haus-camera-feedback-test tests/rtcp_feedback.cpp)
+target_include_directories(haus-camera-feedback-test PRIVATE src)
+target_link_libraries(haus-camera-feedback-test PRIVATE LibDataChannel::LibDataChannel)

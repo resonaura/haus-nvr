@@ -4,7 +4,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 WORKDIR /src
 COPY native ./native
 RUN cmake -S native -B build -DCMAKE_BUILD_TYPE=Release -DOPENSSL_ROOT_DIR=/usr \
-    && cmake --build build --target haus-camera-media --parallel 2
+    && cmake --build build --target haus-camera-media haus-camera-feedback-test --parallel 2 \
+    && ./build/haus-camera-feedback-test
 
 FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates tini python3-venv \
