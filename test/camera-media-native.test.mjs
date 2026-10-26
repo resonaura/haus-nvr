@@ -331,3 +331,194 @@ test(
     );
   },
 );
+
+test(
+  "a cached long-GOP picture starts the production viewer with audio before the next IDR",
+  { skip: !binary, timeout: 20000 },
+  async (t) => {
+    const source = nativeWorker();
+    const video = dgram.createSocket("udp4"),
+      audio = dgram.createSocket("udp4");
+    let generator, reader, decoder;
+    t.after(async () => {
+      video.close();
+      audio.close();
+      for (const child of [decoder, reader, generator, source.child]) {
+        if (!child || child.exitCode !== null || child.signalCode !== null)
+          continue;
+        const closed = once(child, "close");
+        child.kill("SIGKILL");
+        await closed;
+      }
+    });
+    await Promise.all(
+      [video, audio].map(
+        (socket) =>
+          new Promise((resolve) => socket.bind(0, "127.0.0.1", resolve)),
+      ),
+    );
+    await source.waitFor("ready");
+    const id = randomUUID(),
+      rtspPort = await freeTcpPort(),
+      videoPort = await freeUdpPort(),
+      audioPort = await freeUdpPort();
+    source.send({
+      cmd: "start_relay",
+      did: id,
+      rtsp_port: rtspPort,
+      rtp_port: videoPort,
+      audio_rtp_port: audioPort,
+      rtsp_path: id,
+    });
+    await source.waitFor("relay_started");
+    generator = spawn(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-re",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=640x360:rate=15",
+        "-re",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=880:sample_rate=16000",
+        "-map",
+        "0:v:0",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-pix_fmt",
+        "yuv420p",
+        "-g",
+        "180",
+        "-keyint_min",
+        "180",
+        "-sc_threshold",
+        "0",
+        "-bsf:v",
+        "dump_extra=freq=keyframe",
+        "-f",
+        "rtp",
+        "-payload_type",
+        "96",
+        `rtp://127.0.0.1:${videoPort}?pkt_size=1200`,
+        "-map",
+        "1:a:0",
+        "-vn",
+        "-c:a",
+        "aac",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-b:a",
+        "32k",
+        "-f",
+        "rtp",
+        "-payload_type",
+        "97",
+        `rtp://127.0.0.1:${audioPort}?pkt_size=1200`,
+      ],
+      { stdio: "ignore" },
+    );
+    await once(generator, "spawn");
+    await source.waitFor("relay_ready");
+    const engine = new NativeCameraMedia("unused", { log: () => {} });
+    const session = { id, rtspPort };
+    engine.sessions.set(id, session);
+    let firstVideo = false,
+      firstAudio = false,
+      diagnostic = "";
+    video.on("message", () => {
+      firstVideo = true;
+    });
+    audio.on("message", () => {
+      firstAudio = true;
+    });
+    const start = Date.now();
+    reader = spawn(
+      "ffmpeg",
+      engine.viewerArgs(session, {
+        videoPort: video.address().port,
+        audioPort: audio.address().port,
+      }),
+      { stdio: ["ignore", "ignore", "pipe"] },
+    );
+    reader.stderr.on("data", (chunk) => {
+      diagnostic = (diagnostic + chunk).slice(-4000);
+    });
+    while (
+      (!firstVideo || !firstAudio) &&
+      reader.exitCode === null &&
+      Date.now() - start < 4500
+    )
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(
+      firstVideo && firstAudio,
+      `Cached picture and sound must start without a fresh camera IDR: ${diagnostic}`,
+    );
+    assert.equal(
+      reader.exitCode,
+      null,
+      "The production viewer must remain alive after probing",
+    );
+    assert.equal(diagnostic, "");
+
+    // Packet arrival alone does not establish a usable first picture. Decode
+    // the cached IDR before the source's next twelve-second keyframe as well.
+    const inputArgs = engine.viewerArgs(session, {
+      videoPort: video.address().port,
+      audioPort: audio.address().port,
+    });
+    decoder = spawn(
+      "ffmpeg",
+      [
+        "-threads",
+        "1",
+        ...inputArgs.slice(0, inputArgs.indexOf("-map")),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-frames:v",
+        "1",
+        "-pix_fmt",
+        "rgb24",
+        "-f",
+        "rawvideo",
+        "pipe:1",
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let bytes = 0,
+      decodeError = "";
+    decoder.stdout.on("data", (chunk) => {
+      bytes += chunk.length;
+    });
+    decoder.stderr.on("data", (chunk) => {
+      decodeError = (decodeError + chunk).slice(-4000);
+    });
+    const decodeStarted = Date.now();
+    while (
+      bytes < 640 * 360 * 3 &&
+      decoder.exitCode === null &&
+      Date.now() - decodeStarted < 4500
+    )
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(
+      bytes,
+      640 * 360 * 3,
+      `Cached IDR must decode before another source IDR: ${decodeError}`,
+    );
+    assert.equal(decodeError, "");
+  },
+);

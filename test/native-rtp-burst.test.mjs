@@ -240,13 +240,28 @@ test(
     );
     await reader.request("PLAY");
     await waitUntil(
-      () => reader.packets.length >= 6,
+      () => reader.packets.length >= 7,
       "both cached IDR slices reached the late reader",
     );
     assert.deepEqual(
       reader.packets.map((packet) => packet.subarray(12)),
-      [sps, pps, ...slices.map((packet) => packet.subarray(12))],
+      [
+        sps,
+        pps,
+        ...slices.map((packet) => packet.subarray(12)),
+        Buffer.from([9, 0xf0]),
+      ],
     );
+    assert.equal(
+      reader.packets.at(-1)[1] & 0x80,
+      0,
+      "AUD is a delimiter, not a fabricated picture",
+    );
+    for (let index = 1; index < reader.packets.length; index++)
+      assert.equal(
+        reader.packets[index].readUInt16BE(2),
+        reader.packets[index - 1].readUInt16BE(2) + 1,
+      );
     assert.equal(
       new Set(reader.packets.map((packet) => packet.readUInt32BE(4))).size,
       1,
@@ -552,10 +567,14 @@ test(
     );
     await reader.request("PLAY");
     await waitUntil(
-      () => reader.packets.length >= cached.length,
+      () => reader.packets.length >= cached.length + 1,
       "cached IDR should immediately prime the late reader",
     );
-    assert.equal(reader.packets.length, cached.length);
+    assert.equal(reader.packets.length, cached.length + 1);
+    assert.deepEqual(
+      reader.packets.at(-1).subarray(12),
+      Buffer.from([9, 0xf0]),
+    );
     for (let index = 0; index < cached.length; index++)
       assert.deepEqual(
         reader.packets[index].subarray(12),
@@ -571,7 +590,7 @@ test(
     await delay(100);
     assert.equal(
       reader.packets.length,
-      cached.length,
+      cached.length + 1,
       "P-frames and orphan IDR fragments must wait for a complete clean IDR start",
     );
 
@@ -586,7 +605,7 @@ test(
         ),
       "fresh IDR and its following P-frame should reach the reader",
     );
-    const live = reader.packets.slice(cached.length);
+    const live = reader.packets.slice(cached.length + 1);
     // Parameter sets may be repeated immediately before the fresh IDR.
     const livePictures = live.filter(
       (packet) => ![7, 8].includes(packet[12] & 0x1f),
