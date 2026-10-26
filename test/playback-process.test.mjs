@@ -172,3 +172,70 @@ test("non-MP4 input cannot become a network playlist or an arbitrary local-file 
     { name: "AbortError" },
   );
 });
+
+test("a long legacy silent audio lead is removed while the real tone and original survive", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "haus-playback-audio-lead-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const input = join(root, "original.mp4"),
+    output = join(root, "prepared.mp4");
+  await exec("ffmpeg", [
+    "-hide_banner",
+    "-v",
+    "error",
+    "-nostdin",
+    "-y",
+    "-f",
+    "lavfi",
+    "-t",
+    "2",
+    "-i",
+    "testsrc2=size=160x90:rate=20",
+    "-f",
+    "lavfi",
+    "-t",
+    "2",
+    "-i",
+    "sine=frequency=440:sample_rate=16000",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "ultrafast",
+    "-threads",
+    "1",
+    "-pix_fmt",
+    "yuv420p",
+    "-af",
+    "adelay=943418:all=1",
+    "-c:a",
+    "aac",
+    input,
+  ]);
+  const original = await readFile(input);
+  const result = await normalizeRecording({
+    input,
+    output,
+    audioTrimSeconds: 943.418,
+    maxBytes: 4 * 1024 ** 2,
+  });
+  assert.equal(result.audio, true);
+  assert.ok(Math.abs(result.duration - 2) < 0.1);
+  const measured = await exec("ffmpeg", [
+    "-hide_banner",
+    "-nostdin",
+    "-i",
+    output,
+    "-map",
+    "0:a:0",
+    "-af",
+    "volumedetect",
+    "-f",
+    "null",
+    "-",
+  ]);
+  const peak = Number(/max_volume:\s*(-?[\d.]+) dB/.exec(measured.stderr)?.[1]);
+  assert.ok(
+    Number.isFinite(peak) && peak > -25,
+    "the actual tone must survive after trimming the silent lead",
+  );
+  assert.deepEqual(await readFile(input), original);
+});

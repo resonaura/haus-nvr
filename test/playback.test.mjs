@@ -139,6 +139,30 @@ test("authenticated preparation coalesces pending work, verifies result bytes an
   assert.equal((await f.request(`/v1/playback/${job.id}`)).status, 404);
 });
 
+test("a helper-verified legacy silent lead beyond ten minutes reaches the bounded encoder", async (t) => {
+  let supplied;
+  const f = await fixture(t, {
+    encode: async ({ output, audioTrimSeconds }) => {
+      supplied = audioTrimSeconds;
+      await writeFile(output, "prepared-with-real-audio");
+      return { duration: 30.15, width: 2304, height: 1296, audio: true };
+    },
+  });
+  const response = await f.request("/v1/playback", "POST", {
+    ...f.input,
+    audioTrimSeconds: 943.418,
+  });
+  assert.equal(response.status, 202);
+  const job = await response.json();
+  await f.playback.jobs.get(job.id).pending;
+  assert.equal(supplied, 943.418);
+  assert.equal((await f.request(`/v1/playback/${job.id}`)).status, 200);
+  assert.deepEqual(
+    await readFile(blobPath(f.blobs.root, f.source)),
+    f.original,
+  );
+});
+
 test("weak or pressured workers refuse encoding and job forms cannot contain URLs or arbitrary encoder flags", async (t) => {
   let calls = 0;
   const f = await fixture(t, {
@@ -162,6 +186,8 @@ test("weak or pressured workers refuse encoding and job forms cannot contain URL
     { ...f.input, url: "http://private-target/" },
     { ...f.input, args: ["-i", "/etc/passwd"] },
     { ...f.input, audioTrimSeconds: -1 },
+    { ...f.input, audioTrimSeconds: 86400.001 },
+    { ...f.input, audioTrimSeconds: "943.418" },
     { ...f.input, profile: 2 },
     { ...f.input, digest: "../file" },
   ])

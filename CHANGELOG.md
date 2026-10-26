@@ -1,3 +1,8 @@
+# 0.3.31
+
+- Match the helper's 24-hour proven-silent audio-lead limit in playback admission. Legacy originals with about 30 seconds of video and 10–16 minutes of audio can require more than the former ten-minute trim allowance; rejecting those requests prevented bounded background preparation and archiving. The fixed profile still limits video to ten minutes, retains encoder/memory/output/time limits and preserves original bytes.
+- Cover authenticated admission, out-of-range rejection and an actual media fixture whose 943.418-second silent lead is removed while its real tone survives. No live source, P2P, retention or quota policy changes.
+
 # 0.3.27
 
 - Report background per-component Haus file usage separately from disk capacity and quota admission. Measure logical size and allocated blocks, count hard links once, avoid following symlinks and report bounded/partial scans honestly. Preserve exact original/prepared catalog references; unclassified blobs remain explicit. No media processing, source, retention or quota changes.
