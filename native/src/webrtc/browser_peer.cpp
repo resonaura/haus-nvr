@@ -12,6 +12,7 @@
 #include "media/rtp_ingress.hpp"
 #include "media/rtp_continuity.hpp"
 #include "media/rtp_pacer.hpp"
+#include "media/track_nack_responder.hpp"
 
 namespace tuya {
 
@@ -194,7 +195,7 @@ bool BrowserPeer::start(const std::string& remote_offer) {
         // until the next IDR. Keep a bounded retransmission history for RTCP NACK.
         video_rtp_config_ = std::make_shared<rtc::RtpPacketizationConfig>(ssrc_, "haus-camera", video_pt_, 90000);
         video_reporter_ = std::make_shared<rtc::RtcpSrReporter>(video_rtp_config_);
-        video_reporter_->addToChain(std::make_shared<rtc::RtcpNackResponder>(2048));
+        video_reporter_->addToChain(std::make_shared<TrackNackResponder>(ssrc_, 2048));
         video_track_->setMediaHandler(video_reporter_);
         video_track_->onOpen([this]() {
             std::cerr << "[BrowserPeer " << viewer_id_ << "] Video track OPENED (WebRTC streaming active)!"
@@ -209,7 +210,7 @@ bool BrowserPeer::start(const std::string& remote_offer) {
         audio_track_ = pc_->addTrack(audio);
         audio_rtp_config_ = std::make_shared<rtc::RtpPacketizationConfig>(audio_ssrc_, "haus-camera", audio_pt_, 48000);
         audio_reporter_ = std::make_shared<rtc::RtcpSrReporter>(audio_rtp_config_);
-        audio_reporter_->addToChain(std::make_shared<rtc::RtcpNackResponder>(512));
+        audio_reporter_->addToChain(std::make_shared<TrackNackResponder>(audio_ssrc_, 512));
         audio_track_->setMediaHandler(audio_reporter_);
         audio_track_->onOpen(
             [this]() { std::cerr << "[BrowserPeer " << viewer_id_ << "] Audio track OPENED!" << std::endl; });
