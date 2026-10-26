@@ -19,7 +19,7 @@ RUN chmod 755 /usr/local/bin/haus-camera-media
 COPY --chown=node:node vision ./vision
 RUN node vision/fetch-model.mjs
 RUN /opt/vision-env/bin/python3 vision/test_motion.py
-RUN --mount=type=bind,source=test,target=/app/test,readonly node --test test/playback-process.test.mjs
+RUN --mount=type=bind,source=test,target=/app/test,readonly node --test test/playback-process.test.mjs test/transient-workspace.test.mjs
 RUN --mount=type=bind,source=test,target=/app/test,readonly HAUS_CAMERA_MEDIA_BIN=/usr/local/bin/haus-camera-media node --test test/camera-media-native.test.mjs test/native-camera-media.test.mjs test/native-rtp-burst.test.mjs test/native-interleaved-writer.test.mjs test/native-browser-answer.test.mjs
 RUN mkdir -p /data && chown node:node /data
 USER node

@@ -16,7 +16,7 @@ Haus works with one Home Assistant helper. Add NVR nodes when you want more plac
 - Reports CPU, memory, swap and disk telemetry, with optional read-only host Docker/PM2 status for the Haus Servers dashboard.
 - Uses one Linux image for x86-64 and ARM64. Docker runs as an unprivileged user, with a read-only root filesystem and no additional capabilities.
 
-Prebuilt images are published at `ghcr.io/resonaura/haus-nvr:0.3.31` for Linux x86-64 and ARM64. Requires Haus helper 0.2.1 or later for storage (0.3.2 or later for software motion detection). Native RTSP camera sessions, WebRTC viewing and pre-roll recording require helper 0.3.25 or later. Optional playback preparation and server telemetry require helper 0.3.19 or later.
+Prebuilt images are published at `ghcr.io/resonaura/haus-nvr:0.3.32` for Linux x86-64 and ARM64. Requires Haus helper 0.2.1 or later for storage (0.3.2 or later for software motion detection). Native RTSP camera sessions, WebRTC viewing and pre-roll recording require helper 0.3.25 or later. Optional playback preparation and server telemetry require helper 0.3.19 or later.
 
 ## Start a node
 
@@ -101,6 +101,8 @@ Use `HAUS_MAX_STREAMS=1` for an especially small worker. Signed recording reads 
 ### Playback preparation
 
 With a current Haus helper, capable workers can prepare camera recordings for smooth native playback. The helper chooses a lightly loaded node that already holds the original, verifies the returned media and retains the authoritative copy. Older, disconnected or busy nodes fall back to processing on Home Assistant.
+
+Archive blobs may be mounted separately at `/data/blobs` while the catalog, pre-event buffers and processing workspace remain under `/data`. Keep both mounts private and persistent. Temporary admission checks the actual workspace filesystem as well as archive capacity and the configured quota; a full or unreported workspace cannot be hidden by free archive space. On WSL, both paths require their own verified native backing relationship when they are on different filesystems.
 
 Processing uses one encoder per node and preserves source resolution and audio. Admission requires at least one CPU, 768 MiB of RAM and 512 MiB free; high-resolution footage can be declined when the remaining memory allowance is insufficient. Existing activity analysis continues, while new analysis waits during encoding. Weak storage/streaming nodes continue serving their existing roles. Temporary processing output shares the storage budget, expires automatically and is removed after the helper retrieves it.
 

@@ -1,5 +1,11 @@
 # 0.3.31
 
+## 0.3.32
+
+- Bound recording/pre-event and playback scratch reservations by the actual working filesystem when archive blobs use a separate disk. Keep concurrent scratch reservations atomic and independent of uploads to another filesystem, while retaining media quotas and archive reserves.
+- Report unavailable working-space capacity honestly and apply verified native backing limits to a separate sparse WSL workspace. Single-filesystem installations retain shared physical admission.
+- Add full-disk, concurrent admission, release/recovery, archive-upload isolation and real Linux tmpfs regressions; exercise the actual cross-filesystem check in both image builds.
+
 - Match the helper's 24-hour proven-silent audio-lead limit in playback admission. Legacy originals with about 30 seconds of video and 10–16 minutes of audio can require more than the former ten-minute trim allowance; rejecting those requests prevented bounded background preparation and archiving. The fixed profile still limits video to ten minutes, retains encoder/memory/output/time limits and preserves original bytes.
 - Cover authenticated admission, out-of-range rejection and an actual media fixture whose 943.418-second silent lead is removed while its real tone survives. No live source, P2P, retention or quota policy changes.
 
