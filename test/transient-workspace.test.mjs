@@ -13,10 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { createHash } from "node:crypto";
-import {
-  setImmediate as nextTurn,
-  setTimeout as pause,
-} from "node:timers/promises";
+import { setTimeout as pause } from "node:timers/promises";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -94,9 +91,15 @@ test("an archive upload does not consume a different working filesystem's reserv
   const bytes = Buffer.alloc(500, 7);
   const id = createHash("sha256").update(bytes).digest("hex");
   const stream = new PassThrough();
+  const reading = once(stream, "resume", { signal: AbortSignal.timeout(5000) });
   const upload = blobs.put(id, stream, bytes.length);
   try {
-    for (let i = 0; i < 50 && blobs.active === 0; i++) await nextTurn();
+    // Wait for the actual pipeline, not an arbitrary number of event-loop turns
+    // that can elapse before a filesystem callback runs in a busy image build.
+    await Promise.race([
+      reading,
+      upload.then(() => assert.fail("upload ended before its input started")),
+    ]);
     assert.equal(blobs.active, 1);
     const release = await blobs.reserveTransient(50);
     assert.equal((await blobs.status()).workspace.reservedBytes, 50);
