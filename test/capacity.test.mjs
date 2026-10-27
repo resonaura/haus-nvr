@@ -37,3 +37,30 @@ test("weak container quotas bound workers even on a large host and pressure stop
   await capacity.sample();
   assert.equal(capacity.pressured, true);
 });
+test("optional analysis yields to measured whole-host PSI without stopping camera capacity", async (t) => {
+  let memory = "full avg10=0.10 avg60=0.00 avg300=0.00 total=1",
+    io = "full avg10=25.00 avg60=0.00 avg300=0.00 total=1";
+  const capacity = await new Capacity({
+    cpus: 2,
+    memory: 1024 ** 3,
+    read: async (path) =>
+      path === "/proc/pressure/memory"
+        ? memory
+        : path === "/proc/pressure/io"
+          ? io
+          : "",
+  }).initialize();
+  t.after(() => capacity.stop());
+  assert.equal(capacity.pressured, false);
+  assert.equal(capacity.analysisPressured, true);
+  assert.equal(capacity.status().hostPressure.ioFull, 25);
+  io = "full avg10=1.00 avg60=0.00 avg300=0.00 total=1";
+  memory = "full avg10=5.01 avg60=0.00 avg300=0.00 total=1";
+  await capacity.sample();
+  assert.equal(capacity.analysisPressured, true);
+  memory = io = "unsupported";
+  await capacity.sample();
+  assert.equal(capacity.status().hostPressure.memoryFull, null);
+  assert.equal(capacity.analysisPressured, false);
+  assert.equal(capacity.streams, 4);
+});

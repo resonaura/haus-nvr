@@ -15,6 +15,7 @@ export class VisionWorker {
       throw new Error("invalid_detection_mode");
     this.children = [];
     this.state = "starting";
+    this.calibrated = false;
     this.lastFrame = this.lastResult = Date.now();
     const python = spawnProcess(
       process.env.HAUS_VISION_PYTHON || "/opt/vision-env/bin/python3",
@@ -46,7 +47,9 @@ export class VisionWorker {
             busy = false;
             this.lastResult = Date.now();
             this.state = "running";
+            this.calibrated = item.calibrated === true;
             this.processingMs = item.processingMs;
+            if (!this.calibrated) continue;
             for (const detection of (item.detections || []).slice(0, 3))
               if (
                 ["person", "pet", "vehicle", "motion"].includes(detection.kind)

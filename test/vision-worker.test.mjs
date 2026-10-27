@@ -38,12 +38,18 @@ test("slow inference keeps one frame in flight and drops stale frames without ov
   assert.equal(frames[0][0], 0);
   assert.equal(frames[0].at(-1), 0);
   python.stdout.write(
-    '{"type":"frame","processingMs":0,"detections":[{"kind":"person"}]}\n',
+    '{"type":"frame","calibrated":false,"processingMs":0,"detections":[{"kind":"person"}]}\n',
   );
   decoder.stdout.emit("data", Buffer.alloc(320 * 180 * 3, 123));
   assert.equal(frames.length, 2);
   assert.equal(frames[1][0], 123);
+  assert.equal(detections.length, 0);
+  assert.equal(worker.calibrated, false);
+  python.stdout.write(
+    '{"type":"frame","calibrated":true,"processingMs":0,"detections":[{"kind":"person"}]}\n',
+  );
   assert.equal(detections.length, 1);
+  assert.equal(worker.calibrated, true);
   assert.equal(worker.state, "running");
   await worker.stop();
   assert.ok(children.every((child) => child.signalCode === "SIGTERM"));

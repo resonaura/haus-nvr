@@ -1,9 +1,20 @@
 import unittest
+import json
+import pathlib
+import subprocess
+import sys
 import numpy as np
 from motion import Foreground, Analysis, MovementTracks, WIDTH, HEIGHT, object_kind
 
 
 class MotionTests(unittest.TestCase):
+    def test_protocol_does_not_claim_calibrated_before_foreground_warmup(self):
+        image = np.full((HEIGHT, WIDTH, 3), 35, dtype=np.uint8).tobytes()
+        process = subprocess.run([sys.executable, str(pathlib.Path(__file__).with_name('motion.py')), 'motion'], input=image*5, capture_output=True, timeout=10, check=True)
+        frames = [json.loads(line) for line in process.stdout.splitlines() if json.loads(line)['type'] == 'frame']
+        self.assertEqual([frame['calibrated'] for frame in frames], [False]*4+[True])
+        self.assertTrue(all(not frame['detections'] for frame in frames))
+
     def test_noise_and_exposure_changes_do_not_trigger(self):
         gate = Foreground()
         rng = np.random.default_rng(12)
