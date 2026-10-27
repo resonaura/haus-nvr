@@ -1,3 +1,7 @@
+# 0.3.42
+
+- Admit bounded camera rings and temporary capture against their actual working filesystem when it is separate from the archive. A full archive must not stop Live/pre-event buffering on a healthy working disk. Archive uploads retain their disk reserve/quota checks; shared or unknown filesystems remain conservative, and all concurrent temporary jobs share the working budget.
+
 # 0.3.41
 
 - Keep controller-assigned RTSP producers and encoded pre-event rings on their existing admitted node during controller interruption, using encrypted, expiring assignments. Recover assignments after node restart, reuse the same source across viewers/controller owners, retry source recovery with backoff, and honor explicit policy revocation and weak-node capacity. This does not yet elect a replacement node or produce autonomous detection events.

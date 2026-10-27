@@ -68,6 +68,48 @@ test("a full working disk rejects temporary work even when the archive has space
   assert.equal((await blobs.status()).workspace.availableBytes, 20);
 });
 
+test("a full separate archive cannot block bounded camera rings on a healthy working disk", async (t) => {
+  const { blobs, workspaceRoot, setFree, setUnavailable } = await fixture(t, {
+    free: 260,
+  });
+  const original = blobs.filesystem;
+  blobs.filesystem = async (path) =>
+    path === workspaceRoot
+      ? original(path)
+      : { bavail: 90, bsize: 1, blocks: 20000 };
+  blobs.setLimit(0);
+  await assert.rejects(blobs.reserveTransient(32), /storage_full/);
+  const release = await blobs.reserveWorkspace(80);
+  const status = await blobs.status();
+  assert.equal(status.availableBytes, 0);
+  assert.equal(
+    status.reservedBytes,
+    0,
+    "a ring does not reserve archive bytes",
+  );
+  assert.equal(status.workspace.reservedBytes, 80);
+  assert.equal(status.workspace.availableBytes, 80);
+  release();
+  release();
+  assert.equal(blobs.workspaceReserved, 0);
+  setFree(150);
+  const both = await Promise.allSettled([
+    blobs.reserveWorkspace(40),
+    blobs.reserveWorkspace(40),
+  ]);
+  assert.equal(
+    both.filter((result) => result.status === "fulfilled").length,
+    1,
+  );
+  both.find((result) => result.status === "fulfilled").value();
+  setUnavailable();
+  await assert.rejects(blobs.reserveWorkspace(1), /storage_full/);
+  assert.equal(blobs.workspaceReserved, 0);
+  const same = await fixture(t, { separate: false, free: 260 });
+  same.blobs.setLimit(0);
+  await assert.rejects(same.blobs.reserveWorkspace(1), /storage_full/);
+});
+
 test("concurrent working reservations cannot overbook a separate filesystem and release is idempotent", async (t) => {
   const { blobs } = await fixture(t, { free: 190 });
   const results = await Promise.allSettled([
