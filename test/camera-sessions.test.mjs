@@ -271,6 +271,38 @@ test("signed session RPC enforces owner isolation, pre-roll and secret-free stat
     endAt: 120000,
   });
   assert.equal(f.rings[0].jobs.get(eventId).startAt, 92000);
+  const event = {
+    id: eventId,
+    cameraId: "camera.fixture",
+    startAt: 100000,
+    endAt: 125000,
+    kinds: ["motion"],
+  };
+  assert.equal(
+    (
+      await rpc(path + "/recordings", {
+        owner,
+        eventId,
+        startAt: event.startAt,
+        endAt: event.endAt,
+        event,
+      })
+    ).status,
+    202,
+  );
+  assert.deepEqual(f.rings[0].jobs.get(eventId).metadata, event);
+  assert.equal(
+    (
+      await rpc(path + "/recordings", {
+        owner,
+        eventId,
+        startAt: event.startAt,
+        endAt: event.endAt,
+        event: { ...event, cameraId: "camera.other" },
+      })
+    ).status,
+    400,
+  );
   const status = await (
     await fetch(base + "/v1/status", {
       headers: sign(key, "GET", "/v1/status"),
@@ -284,9 +316,15 @@ test("stream-copy ring tolerates file-write jitter but rejects real missing foot
   let at = 100000;
   const reservations = [];
   const diagnostics = [];
+  const saved = [];
   const ring = new CameraRing(root, "rtsp://127.0.0.1:8554/fixture", {
     now: () => at,
     log: (event, fields) => diagnostics.push({ event, ...fields }),
+    onRecordingReady: async (job) => {
+      assert.ok((await stat(job.output)).size > 0);
+      assert.equal(job.result.audio, true);
+      saved.push(job.metadata);
+    },
     reserve: async (bytes) => {
       reservations.push(bytes);
       return () => reservations.splice(reservations.indexOf(bytes), 1);
@@ -359,7 +397,19 @@ test("stream-copy ring tolerates file-write jitter but rejects real missing foot
   await ring.sample();
   assert.equal(ring.ready(), true);
   const eventId = randomUUID();
-  await ring.record({ eventId, startAt: 92000, endAt: 100000 });
+  const event = {
+    id: eventId,
+    cameraId: "camera.fixture",
+    startAt: 100000,
+    endAt: 101000,
+    kinds: ["motion"],
+  };
+  await ring.record({
+    eventId,
+    startAt: 92000,
+    endAt: 100000,
+    metadata: event,
+  });
   at = 103000;
   await ring.sample();
   await ring.finalizing;
@@ -368,6 +418,11 @@ test("stream-copy ring tolerates file-write jitter but rejects real missing foot
   assert.equal(job.result.audio, true);
   assert.ok(job.result.mediaStartAt <= 92000);
   assert.ok(job.result.duration >= 8);
+  assert.deepEqual(
+    saved,
+    [event],
+    "durable output receives original trigger metadata, not its pre-roll-adjusted window",
+  );
   const metadata = JSON.parse(
     await cameraProcess("ffprobe", [
       "-v",
