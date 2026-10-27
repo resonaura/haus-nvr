@@ -252,7 +252,27 @@ test("a scoped camera key survives controller loss without becoming a node key; 
       1,
       "closing one app instance keeps another instance alive",
     );
-    await access.revoke(id);
+    await access.provision(input);
+    assert.equal(
+      (await fetch(base + signedPath, { headers: replay })).status,
+      401,
+      "idempotent provisioning must not reset nonce replay protection",
+    );
+    const deniedPolicy = await request(
+      "/v1/camera-access/reconcile",
+      { cameras: [] },
+      clientKey,
+    );
+    assert.equal(deniedPolicy.status, 401);
+    const policy = await request(
+      "/v1/camera-access/reconcile",
+      { cameras: [] },
+      key,
+      "POST",
+      false,
+    );
+    assert.equal(policy.status, 200);
+    assert.deepEqual(await policy.json(), { revoked: 1 });
     assert.equal(viewers.size, 0);
     assert.equal(
       (await request("/v1/client/camera/warm", { active: true }, clientKey))

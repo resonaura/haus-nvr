@@ -1,3 +1,7 @@
+# 0.3.40
+
+- Reconcile camera-only capabilities against the controller’s current camera policy, revoke all independent owners for removed or explicitly stopped cameras, retain replay protection across idempotent provisioning, and prevent a revoked in-flight offer from becoming active.
+
 ## 0.3.39
 
 - Add optional, camera-scoped signed client access so an authorized desktop can reconnect to an existing NVR without using the HA event socket or receiving the node administrator key / RTSP credentials. Paired controllers provision bounded grants; source definitions are encrypted at rest. Enforce expiry, revocation, signed body integrity, per-camera ownership and separate preview/viewer leases.
