@@ -20,6 +20,61 @@ import {
 import { createNode } from "../lib/server.mjs";
 import { sign } from "../lib/auth.mjs";
 
+test("unfinished autonomous IDs and native intent deduplication survive abrupt restart without invented media", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "haus-activity-journal-"));
+  const blobs = new Blobs(join(root, "blobs"), { reserveBytes: 0 });
+  await blobs.initialize();
+  let index = new RecordingIndex(join(root, "recordings.sqlite"), blobs),
+    outbox = await new CameraRecordings(
+      join(root, "outbox"),
+      index,
+      blobs,
+    ).initialize();
+  t.after(async () => {
+    await outbox.stop();
+    index.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const requestId = randomUUID(),
+    event = {
+      id: randomUUID(),
+      cameraId: "camera.fixture",
+      startAt: Date.now(),
+      endAt: Date.now() + 20000,
+      kinds: ["person"],
+      origin: { kind: "camera-activity", policyId: randomUUID() },
+    };
+  outbox.beginActivity(event, requestId);
+  assert.equal(
+    outbox.activityRequest(event.cameraId, event.origin.policyId, requestId),
+    event.id,
+  );
+  await outbox.stop();
+  index.close();
+  index = new RecordingIndex(join(root, "recordings.sqlite"), blobs);
+  outbox = await new CameraRecordings(
+    join(root, "outbox"),
+    index,
+    blobs,
+  ).initialize();
+  assert.equal(
+    outbox.activityRequest(event.cameraId, event.origin.policyId, requestId),
+    event.id,
+    "a retried native intent must never create a second ID after restart",
+  );
+  assert.deepEqual(outbox.interruptedActivities().items, [
+    { event, state: "interrupted", error: "node_restarted" },
+  ]);
+  assert.equal(
+    index.get(event.id),
+    null,
+    "a journal entry is not a fabricated playable original",
+  );
+  assert.equal(outbox.get(event.id), null);
+  outbox.acknowledgeInterrupted(event.id);
+  assert.equal(outbox.interruptedActivities().items.length, 0);
+});
+
 test("finished original survives session cleanup, archive pressure, node restart and repeated recovery without replacing prepared media", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "haus-capture-outbox-")),
     archive = join(root, "archive"),
