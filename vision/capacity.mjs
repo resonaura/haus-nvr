@@ -11,6 +11,8 @@ export class Capacity {
   } = {}) {
     this.read = async (name) =>
       String(await read(`/sys/fs/cgroup/${name}`, "utf8").catch(() => ""));
+    this.readHost = async (name) =>
+      String(await read(`/proc/pressure/${name}`, "utf8").catch(() => ""));
     this.cpus = cpus;
     this.memory = memory;
     this.requestedStreams = maxStreams;
@@ -56,11 +58,25 @@ export class Capacity {
     return this;
   }
   async sample() {
-    const [memory, stats, cpu] = await Promise.all([
+    const [memory, stats, cpu, memoryPressure, ioPressure] = await Promise.all([
       this.read("memory.current"),
       this.read("memory.stat"),
       this.read("cpu.stat"),
+      this.readHost("memory"),
+      this.readHost("io"),
     ]);
+    const full = (value) => {
+      const match = /^full\s+avg10=(\d+(?:\.\d+)?)\s/m.exec(value);
+      const percent = match ? Number(match[1]) : NaN;
+      return Number.isFinite(percent) && percent >= 0 && percent <= 100
+        ? percent
+        : null;
+    };
+    this.hostPressure = {
+      scope: "linux-kernel",
+      memoryFull: full(memoryPressure),
+      ioFull: full(ioPressure),
+    };
     if (memory.trim() && Number(memory) >= 0) {
       // cgroup usage includes disk page cache from recording replication. Only
       // subtract inactive file pages; anonymous memory, tmpfs and active pages
@@ -85,6 +101,15 @@ export class Capacity {
   get pressured() {
     return this.memoryUsed / this.memory > 0.85 || this.cpu > 0.9;
   }
+  get analysisPressured() {
+    // Optional inference yields to actual whole-host swapping/I/O stalls even
+    // when its own container has spare quota. Existing camera rings keep running.
+    return (
+      this.pressured ||
+      (this.hostPressure?.memoryFull ?? 0) >= 5 ||
+      (this.hostPressure?.ioFull ?? 0) >= 20
+    );
+  }
   status() {
     return {
       cpus: this.cpus,
@@ -93,6 +118,8 @@ export class Capacity {
       memoryCurrentBytes: this.memoryCurrent ?? this.memoryUsed,
       cpu: this.cpu,
       pressured: this.pressured,
+      analysisPressured: this.analysisPressured,
+      hostPressure: this.hostPressure,
     };
   }
   stop() {

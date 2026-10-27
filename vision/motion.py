@@ -144,7 +144,7 @@ def main():
             break
         started = time.monotonic()
         detections = analysis.analyze(np.frombuffer(data, dtype=np.uint8).reshape(HEIGHT, WIDTH, 3))
-        print(json.dumps({'type': 'frame', 'detections': detections, 'processingMs': round((time.monotonic() - started) * 1000)}), flush=True)
+        print(json.dumps({'type': 'frame', 'detections': detections, 'calibrated': analysis.gate.frames > 4, 'processingMs': round((time.monotonic() - started) * 1000)}), flush=True)
 
 
 if __name__ == '__main__':
