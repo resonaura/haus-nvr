@@ -1,6 +1,6 @@
 # 0.3.44
 
-- Retain explicitly assigned Activity Assist on its admitted NVR while the controller is unavailable. Persist encrypted bounded policies, reuse the local RTSP producer/ring, preserve analysis quotas and expire/revoke assignments. Native semantic triggers and software detections coalesce under one capture ID, with idempotent recording-intent retries and the existing durable original outbox. Native capture stays available while inference lacks capacity. This does not enable Assist by default or claim peer election/in-progress media survival after abrupt node loss.
+- Retain explicitly assigned Activity Assist on its admitted NVR while the controller is unavailable. Persist encrypted bounded policies, reuse the local RTSP producer/ring, preserve analysis quotas and expire/revoke assignments. Native semantic triggers and software detections coalesce under one capture ID, with idempotent recording-intent retries and the existing durable original outbox. Native capture stays available while inference lacks capacity. Journal autonomous event IDs and native request deduplication atomically before capture; retain interrupted outcomes after source/node loss without inventing playable media. This does not enable Assist by default or claim peer election/in-progress media survival after abrupt node loss.
 
 # 0.3.43
 
