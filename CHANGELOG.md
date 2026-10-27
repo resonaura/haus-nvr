@@ -1,3 +1,7 @@
+# 0.3.43
+
+- Preserve completed camera originals in a private durable outbox before temporary session cleanup. Archive verified bytes and original event IDs on the node, retain pending media through archive pressure/restart, and expose authenticated paged recovery with explicit idempotent acknowledgement. Unacknowledged originals cannot be pruned. Preserve normal P2P/prebuffer/audio and weak-node admission. This is capture recovery groundwork; it does not enable detection or claim autonomous new-event failover.
+
 # 0.3.42
 
 - Admit bounded camera rings and temporary capture against their actual working filesystem when it is separate from the archive. A full archive must not stop Live/pre-event buffering on a healthy working disk. Archive uploads retain their disk reserve/quota checks; shared or unknown filesystems remain conservative, and all concurrent temporary jobs share the working budget.

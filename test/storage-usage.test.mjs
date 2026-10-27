@@ -126,5 +126,6 @@ test("classifies only confirmed blob roles and separates active capture from pre
     "prebuffer",
   );
   assert.equal(nodeStorageCategory("recordings.sqlite-wal"), "databases");
+  assert.equal(nodeStorageCategory("camera-recordings/event.mp4"), "capture");
   assert.equal(nodeStorageCategory("blobs/.partial-x"), "temporary");
 });
