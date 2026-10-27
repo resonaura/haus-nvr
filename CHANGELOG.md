@@ -1,3 +1,7 @@
+# 0.3.41
+
+- Keep controller-assigned RTSP producers and encoded pre-event rings on their existing admitted node during controller interruption, using encrypted, expiring assignments. Recover assignments after node restart, reuse the same source across viewers/controller owners, retry source recovery with backoff, and honor explicit policy revocation and weak-node capacity. This does not yet elect a replacement node or produce autonomous detection events.
+
 # 0.3.40
 
 - Reconcile camera-only capabilities against the controller’s current camera policy, revoke all independent owners for removed or explicitly stopped cameras, retain replay protection across idempotent provisioning, and prevent a revoked in-flight offer from becoming active.

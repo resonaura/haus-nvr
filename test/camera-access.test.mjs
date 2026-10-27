@@ -80,6 +80,7 @@ test("a scoped camera key survives controller loss without becoming a node key; 
     instanceId: randomUUID(),
     cameras,
     cameraAccess: access,
+    continuity: { update: async (cameras) => ({ accepted: cameras.length }) },
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -136,6 +137,27 @@ test("a scoped camera key survives controller loss without becoming a node key; 
       1,
     );
     const clientKey = cameraAccessKey(key, id, input.cameraId, input.expiresAt);
+    assert.equal(
+      (
+        await request(
+          "/v1/camera-continuity",
+          { cameras: [] },
+          clientKey,
+          "PUT",
+        )
+      ).status,
+      401,
+      "a camera-only key cannot authorize durable producers",
+    );
+    const assignedPolicy = await request(
+      "/v1/camera-continuity",
+      { cameras: [] },
+      key,
+      "PUT",
+      false,
+    );
+    assert.equal(assignedPolicy.status, 200);
+    assert.deepEqual(await assignedPolicy.json(), { accepted: 0 });
     const signedPath = "/v1/client/camera/status";
     const replay = {
       ...sign(clientKey, "GET", signedPath),
