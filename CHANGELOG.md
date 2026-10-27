@@ -1,3 +1,8 @@
+## 0.3.39
+
+- Add optional, camera-scoped signed client access so an authorized desktop can reconnect to an existing NVR without using the HA event socket or receiving the node administrator key / RTSP credentials. Paired controllers provision bounded grants; source definitions are encrypted at rest. Enforce expiry, revocation, signed body integrity, per-camera ownership and separate preview/viewer leases.
+- Reuse the existing capacity, P2P restream and native WebRTC/ring code. A failed optional grant store leaves existing media services active. The API alone does not claim autonomous recording failover or controller redundancy is complete.
+
 ## 0.3.36
 
 - Terminate the replayed cached H264 access unit with a small AUD delimiter for late RTSP readers. FFmpeg otherwise can finish its one-second audio probe without emitting the buffered picture, reject the viewer with missing video dimensions and wait for a fresh keyframe on retry. Do not fabricate a video frame, extend timestamps or forward dependent frames before a clean IDR.
