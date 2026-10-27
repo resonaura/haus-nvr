@@ -114,3 +114,6 @@ When SMBIOS records are root-only, `sudo sh install/host-memory-probe.sh` instal
 
 
 Optional activity analysis honors whole-host Linux PSI as well as its container quota. New inference is paused at 5% full memory stall or 20% full I/O stall over the last ten seconds; sustained pressure retires an analysis worker after twenty seconds. Existing native camera sources and pre-event rings keep their own admission/lifetime policy. Missing PSI is reported as unknown. Assignment can also use the measured host CPU load. Analysis reports foreground calibration separately from fresh decoded input so a warming model is not treated as a clear scene.
+
+
+PSI counters are explicitly scoped to the Linux kernel. On a WSL node they describe the Linux VM, rather than inventing native Windows I/O or memory-pressure counters. Native Windows host CPU remains a separate measured placement input.

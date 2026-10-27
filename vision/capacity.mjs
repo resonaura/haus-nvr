@@ -73,6 +73,7 @@ export class Capacity {
         : null;
     };
     this.hostPressure = {
+      scope: "linux-kernel",
       memoryFull: full(memoryPressure),
       ioFull: full(ioPressure),
     };
