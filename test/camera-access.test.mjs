@@ -90,7 +90,14 @@ test("a scoped camera key survives controller loss without becoming a node key; 
     method = "POST",
     delegated = true,
   ) => {
-    const bytes = data === undefined ? undefined : JSON.stringify(data);
+    const bytes =
+      data === undefined
+        ? undefined
+        : JSON.stringify(
+            path.startsWith("/v1/client/")
+              ? { clientSession: "f".repeat(16), ...data }
+              : data,
+          );
     return fetch(base + path, {
       method,
       headers: {
@@ -129,6 +136,44 @@ test("a scoped camera key survives controller loss without becoming a node key; 
       1,
     );
     const clientKey = cameraAccessKey(key, id, input.cameraId, input.expiresAt);
+    const signedPath = "/v1/client/camera/status";
+    const replay = {
+      ...sign(clientKey, "GET", signedPath),
+      "x-haus-camera-access": id,
+    };
+    assert.equal(
+      (await fetch(base + signedPath, { headers: replay })).status,
+      200,
+    );
+    assert.equal(
+      (await fetch(base + signedPath, { headers: replay })).status,
+      401,
+    );
+    const untouched = JSON.stringify({
+      clientSession: "f".repeat(16),
+      active: true,
+      preview: true,
+    });
+    const modified = JSON.stringify({
+      clientSession: "f".repeat(16),
+      active: false,
+      preview: true,
+    });
+    const tampered = await fetch(base + "/v1/client/camera/warm", {
+      method: "POST",
+      headers: {
+        ...sign(
+          clientKey,
+          "POST",
+          "/v1/client/camera/warm",
+          createHash("sha256").update(untouched).digest("hex"),
+        ),
+        "x-haus-camera-access": id,
+      },
+      body: modified,
+    });
+    assert.equal(tampered.ok, false);
+    assert.equal(sessions.size, 0);
     assert.equal(
       (await request("/v1/status", undefined, clientKey, "GET")).status,
       401,
@@ -157,6 +202,21 @@ test("a scoped camera key survives controller loss without becoming a node key; 
     assert.ok(byCamera.has("camera.fixture"));
     assert.equal(byCamera.has("camera.other"), false);
     const viewerId = randomUUID();
+    const secondViewer = randomUUID();
+    assert.equal(
+      (
+        await request(
+          "/v1/client/camera/viewer",
+          {
+            clientSession: "e".repeat(16),
+            viewerId: secondViewer,
+            offer: "v=0\r\nfixture",
+          },
+          clientKey,
+        )
+      ).status,
+      200,
+    );
     assert.equal(
       (
         await request(
@@ -179,7 +239,7 @@ test("a scoped camera key survives controller loss without becoming a node key; 
     );
     assert.equal(
       viewers.size,
-      1,
+      2,
       "preview release cannot stop an independent viewer",
     );
     assert.equal(
@@ -187,8 +247,13 @@ test("a scoped camera key survives controller loss without becoming a node key; 
         .status,
       200,
     );
-    assert.equal(viewers.size, 0);
+    assert.equal(
+      viewers.size,
+      1,
+      "closing one app instance keeps another instance alive",
+    );
     await access.revoke(id);
+    assert.equal(viewers.size, 0);
     assert.equal(
       (await request("/v1/client/camera/warm", { active: true }, clientKey))
         .status,
