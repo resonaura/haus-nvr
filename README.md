@@ -1,3 +1,7 @@
+> **Public archive:** Haus NVR is now developed with Haus Helper and the desktop app in the [Haus monorepo](https://github.com/resonaura/haus). The projects were consolidated to avoid duplicate code and keep shared protocols, compatibility changes, and releases in sync. This repository remains available as a historical archive; use the monorepo for current source, images, and setup instructions.
+
+---
+
 <p align="center"><img src="assets/icon.png" width="128" alt="Haus" /></p>
 <h1 align="center">Haus NVR</h1>
 <p align="center">A little more room for your home.</p>
